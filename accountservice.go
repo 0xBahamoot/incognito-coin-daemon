@@ -8,6 +8,7 @@ import (
 )
 
 type Account struct {
+	ShardID        byte
 	PAstr          string //PaymentAddressString
 	PaymentAddress key.PaymentAddress
 	Viewkey        key.ViewingKey
@@ -75,12 +76,4 @@ func getAllBalance() map[string]uint64 {
 	}
 	accountListLck.RUnlock()
 	return result
-}
-
-func updateAvaliableCoin(account *Account, keyimages []string) error {
-	return nil
-}
-
-func chooseCoinsForAccount(account *Account, amount int64, tokenID string) ([]string, error) {
-	return nil, nil
 }

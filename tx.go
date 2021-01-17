@@ -1,11 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 
+	"github.com/incognitochain/incognito-chain/common"
+	"github.com/incognitochain/incognito-chain/metadata"
 	"github.com/incognitochain/incognito-chain/privacy"
-	"github.com/incognitochain/incognito-chain/privacy/key"
+	"github.com/incognitochain/incognito-chain/rpcserver/bean"
 	"github.com/incognitochain/incognito-chain/transaction/tx_generic"
 	"github.com/incognitochain/incognito-chain/transaction/tx_ver2"
 	"github.com/incognitochain/incognito-chain/transaction/utils"
@@ -19,30 +22,93 @@ type onGoingTxCreationStruct struct {
 
 var onGoingTxCreation onGoingTxCreationStruct
 
-func CreateTxPRV(account *Account, paymentInfo []key.PaymentInfo) error {
+func CreateTxPRV(account *Account, tokenID string, paymentInfo []*privacy.PaymentInfo, metadataParam metadata.Metadata) (metadata.Transaction, error) {
 	//create tx param
-
-	// rewrite TxBase InitializeTxAndParams
-	// check this IsNonPrivacyNonInput (request sign from device)
-
-	//validate tx param ValidateTxParams
-
-	//conceal coin
-	return nil
+	rawTxParam := bean.CreateRawTxParam{
+		ShardIDSender:        account.ShardID,
+		PaymentInfos:         paymentInfo,
+		HasPrivacyCoin:       true,
+		Info:                 nil,
+		EstimateFeeCoinPerKb: 0,
+	}
+	tx, err := buildRawTransaction(&rawTxParam, metadataParam)
+	if err != nil {
+		return nil, err
+	}
+	return tx, nil
 }
 
-func CreateTxToken(account *Account, tokenID string, paymentInfo []key.PaymentInfo) error {
+func CreateTxToken(account *Account, tokenID string, paymentInfo []*privacy.PaymentInfo, metadataParam metadata.Metadata) (metadata.Transaction, error) {
 	//create tx param
+	rawTxParam := bean.CreateRawTxParam{
+		ShardIDSender:        account.ShardID,
+		PaymentInfos:         paymentInfo,
+		HasPrivacyCoin:       true,
+		Info:                 nil,
+		EstimateFeeCoinPerKb: 0,
+	}
+	tx, err := buildRawTransaction(account, &rawTxParam, metadataParam)
+	if err != nil {
+		return nil, err
+	}
+	return tx, nil
+}
+
+func buildRawTransaction(account *Account, params *bean.CreateRawTxParam, meta metadata.Metadata) (metadata.Transaction, error) {
+	var tx tx_ver2.Tx
+
+	// get output coins to spend and real fee
+
+	inputCoins, realFee, err := chooseCoinsForAccount(account,
+		params.PaymentInfos, params.EstimateFeeCoinPerKb, 0,
+		params.SenderKeySet, params.ShardIDSender, params.HasPrivacyCoin,
+		meta, nil)
+	if err1 != nil {
+		return err
+	}
 
 	// rewrite TxBase InitializeTxAndParams
-	// check this IsNonPrivacyNonInput (request sign from device)
+	initializingParams := tx_generic.NewTxPrivacyInitParams(dummyPrivateKeys[0],
+		paymentInfoOut, inputCoins,
+		sumIn-sumOut, hasPrivacyForPRV,
+		dummyDB,
+		&common.PRVCoinID,
+		nil,
+		[]byte{},
+	)
 
-	// proveTxPRV
+	params, ok := paramsInterface.(*tx_generic.TxPrivacyInitParams)
+	if !ok {
+		return errors.New("params of tx Init is not TxPrivacyInitParam")
+	}
+
+	jsb, _ := json.Marshal(params)
+	utils.Logger.Log.Infof("Create TX v2 with params %s", string(jsb))
+	if err := tx_generic.ValidateTxParams(params); err != nil {
+		return err
+	}
+
+	// Init tx and params (tx and params will be changed)
+	if err := tx.InitializeTxAndParams(params); err != nil {
+		return err
+	}
+	// check this IsNonPrivacyNonInput (request sign from device)
+	if len(params.InputCoins) == 0 && params.Fee == 0 && !params.HasPrivacy {
+		//Logger.Log.Debugf("len(inputCoins) == 0 && fee == 0 && !hasPrivacy\n")
+		tx.sigPrivKey = *params.SenderSK
+		if tx.Sig, tx.SigPubKey, err = SignNoPrivacy(params.SenderSK, tx.Hash()[:]); err != nil {
+			utils.Logger.Log.Error(errors.New(fmt.Sprintf("Cannot signOnMessage tx %v\n", err)))
+			return true, utils.NewTransactionErr(utils.SignTxError, err)
+		}
+		return true, nil
+	}
+
+	// proveTxToken
 
 	//validate tx param ValidateTxParams
 
 	//conceal coin
-	return nil
+	return tx, nil
 }
 
 // use for prv tx
@@ -53,9 +119,9 @@ func proveTxPRV(tx *tx_ver2.Tx, params *tx_generic.TxPrivacyInitParams) error {
 		return err
 	}
 
-	// inputCoins is plainCoin because it may have coinV1 with coinV2
 	inputCoins := params.InputCoins
 
+	// gen tx proof
 	tx.Proof, err = privacy.ProveV2(inputCoins, outputCoins, nil, false, params.PaymentInfo)
 	if err != nil {
 		utils.Logger.Log.Errorf("Error in privacy_v2.Prove, error %v ", err)
@@ -63,9 +129,17 @@ func proveTxPRV(tx *tx_ver2.Tx, params *tx_generic.TxPrivacyInitParams) error {
 	}
 
 	if tx.ShouldSignMetaData() {
-		// signMetadata
+		if err := signMetadata(tx); err != nil {
+			panic(err)
+		}
 	}
 
+	// ringSig + mlsag
+	// err := tx.signOnMessage(inputCoins, outputCoins, params, tx.Hash()[:])
+	return nil
+}
+
+func proveTxToken(tx *tx_ver2.Tx, params *tx_generic.TxPrivacyInitParams) error {
 	return nil
 }
 

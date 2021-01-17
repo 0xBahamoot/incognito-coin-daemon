@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"sync"
@@ -10,8 +11,11 @@ import (
 	"github.com/incognitochain/incognito-chain/common"
 	"github.com/incognitochain/incognito-chain/dataaccessobject/statedb"
 	"github.com/incognitochain/incognito-chain/incognitokey"
+	"github.com/incognitochain/incognito-chain/metadata"
 	"github.com/incognitochain/incognito-chain/multiview"
 	"github.com/incognitochain/incognito-chain/privacy"
+	"github.com/incognitochain/incognito-chain/privacy/coin"
+	"github.com/incognitochain/incognito-chain/transaction"
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
@@ -131,4 +135,93 @@ func initCoinService() {
 
 func initCoinServiceRPCMode() {
 
+}
+
+func retrieveCoins(coinHash []string) ([]coin.PlainCoin, error) {
+	var result []coin.PlainCoin
+
+	return result, nil
+}
+
+func updateAvaliableCoin(account *Account, keyimages []string) error {
+	return nil
+}
+
+func chooseCoinsForAccount(account *Account, paymentInfos []*privacy.PaymentInfo, tokenID string, meta metadata.Metadata) ([]string, uint64, error) {
+	// estimate fee according to 8 recent block
+	numBlock := 1000
+	shardIDSender := account.ShardID
+	// calculate total amount to send
+	totalAmmount := uint64(0)
+	for _, receiver := range paymentInfos {
+		totalAmmount += receiver.Amount
+	}
+	// get list outputcoins tx
+	prvCoinID := &common.Hash{}
+	prvCoinID.SetBytes(common.PRVCoinID[:])
+	coinsHash := account.AvaliableCoins[prvCoinID.String()]
+	plainCoins, err := retrieveCoins(coinsHash)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(plainCoins) == 0 && totalAmmount > 0 {
+		return nil, 0, errors.New("not enough output coin")
+	}
+
+	// Use Knapsack to get candiate output coin
+	candidatePlainCoins, outCoins, candidateOutputCoinAmount, err := txService.chooseBestOutCoinsToSpent(plainCoins, totalAmmount)
+	if err != nil {
+		return nil, 0, err
+	}
+	// refund out put for sender
+	overBalanceAmount := candidateOutputCoinAmount - totalAmmount
+	if overBalanceAmount > 0 {
+		// add more into output for estimate fee
+		paymentInfos = append(paymentInfos, &privacy.PaymentInfo{
+			PaymentAddress: keySet.PaymentAddress,
+			Amount:         overBalanceAmount,
+		})
+	}
+	// check real fee(nano PRV) per tx
+	beaconState, err := txService.BlockChain.GetClonedBeaconBestState()
+	if err != nil {
+		return nil, 0, err
+	}
+	beaconHeight := beaconState.BeaconHeight
+	ver, err := transaction.GetTxVersionFromCoins(candidatePlainCoins)
+	realFee, _, _, err := txService.EstimateFee(int(ver), unitFeeNativeToken, false, candidatePlainCoins,
+		paymentInfos, shardIDSender, numBlock, hasPrivacy,
+		metadataParam,
+		privacyCustomTokenParams, int64(beaconHeight))
+	if err != nil {
+		return nil, 0, err
+	}
+	if totalAmmount == 0 && realFee == 0 {
+		if metadataParam != nil {
+			metadataType := metadataParam.GetType()
+			switch metadataType {
+			case metadata.WithDrawRewardRequestMeta:
+				{
+					return nil, realFee, nil
+				}
+			}
+			return nil, realFee, fmt.Errorf("totalAmmount: %+v, realFee: %+v", totalAmmount, realFee)
+		}
+		if privacyCustomTokenParams != nil {
+			// for privacy token
+			return nil, 0, nil
+		}
+	}
+	needToPayFee := int64((totalAmmount + realFee) - candidateOutputCoinAmount)
+	// if not enough to pay fee
+	if needToPayFee > 0 {
+		if len(outCoins) > 0 {
+			candidateOutputCoinsForFee, _, _, err := txService.chooseBestOutCoinsToSpent(outCoins, uint64(needToPayFee))
+			if err != nil {
+				return nil, 0, err
+			}
+			candidatePlainCoins = append(candidatePlainCoins, candidateOutputCoinsForFee...)
+		}
+	}
+	return candidatePlainCoins, realFee, nil
 }

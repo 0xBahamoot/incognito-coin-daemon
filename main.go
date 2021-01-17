@@ -22,15 +22,20 @@ func main() {
 	modeFlag := flag.String("mode", "light", "daemon mode")
 	rpcFlag := flag.String("rpchost", "127.0.0.1:9334", "rpc host")
 	flag.Parse()
+	if err := initAccountService(); err != nil {
+		panic(err)
+	}
 	switch *modeFlag {
 	case MODELIGHT:
 		node := devframework.NewAppNode("fullnode", devframework.TestNet2Param, true, false)
 		localnode = node
 		initCoinService()
-		initAccountService()
+
 	case MODERPC:
 		node := devframework.NewRPCClient(*rpcFlag)
 		_ = node
+
+		initCoinServiceRPCMode()
 	case MODESIM:
 		node := devframework.NewStandaloneSimulation("simnode", devframework.Config{
 			ChainParam: devframework.NewChainParam(devframework.ID_TESTNET2).SetActiveShardNumber(8),
