@@ -1,9 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/incognitochain/incognito-chain/common"
 	"github.com/incognitochain/incognito-chain/metadata"
@@ -31,7 +31,7 @@ func CreateTxPRV(account *Account, tokenID string, paymentInfo []*privacy.Paymen
 		Info:                 nil,
 		EstimateFeeCoinPerKb: 0,
 	}
-	tx, err := buildRawTransaction(&rawTxParam, metadataParam)
+	tx, err := buildRawTransaction(account, &rawTxParam, metadataParam)
 	if err != nil {
 		return nil, err
 	}
@@ -55,65 +55,61 @@ func CreateTxToken(account *Account, tokenID string, paymentInfo []*privacy.Paym
 }
 
 func buildRawTransaction(account *Account, params *bean.CreateRawTxParam, meta metadata.Metadata) (metadata.Transaction, error) {
-	var tx tx_ver2.Tx
-
 	// get output coins to spend and real fee
-
 	inputCoins, realFee, err := chooseCoinsForAccount(account,
-		params.PaymentInfos, params.EstimateFeeCoinPerKb, 0,
-		params.SenderKeySet, params.ShardIDSender, params.HasPrivacyCoin,
-		meta, nil)
-	if err1 != nil {
-		return err
+		params.PaymentInfos, meta, nil)
+	if err != nil {
+		return nil, err
 	}
 
 	// rewrite TxBase InitializeTxAndParams
-	initializingParams := tx_generic.NewTxPrivacyInitParams(dummyPrivateKeys[0],
-		paymentInfoOut, inputCoins,
-		sumIn-sumOut, hasPrivacyForPRV,
-		dummyDB,
-		&common.PRVCoinID,
+	initializingParams := tx_generic.NewTxPrivacyInitParams(nil,
+		params.PaymentInfos, inputCoins,
+		realFee, true,
 		nil,
+		nil, // &common.PRVCoinID,
+		meta,
 		[]byte{},
 	)
-
-	params, ok := paramsInterface.(*tx_generic.TxPrivacyInitParams)
-	if !ok {
-		return errors.New("params of tx Init is not TxPrivacyInitParam")
+	//
+	//Tx Init Start
+	//
+	if err := tx_generic.ValidateTxParams(initializingParams); err != nil {
+		return nil, err
+	}
+	// we use tx ver 2 only
+	var tx tx_ver2.Tx
+	if err := initializeTxAndParams(account, &tx.TxBase, initializingParams); err != nil {
+		return nil, err
 	}
 
-	jsb, _ := json.Marshal(params)
-	utils.Logger.Log.Infof("Create TX v2 with params %s", string(jsb))
-	if err := tx_generic.ValidateTxParams(params); err != nil {
-		return err
-	}
-
-	// Init tx and params (tx and params will be changed)
-	if err := tx.InitializeTxAndParams(params); err != nil {
-		return err
-	}
-	// check this IsNonPrivacyNonInput (request sign from device)
-	if len(params.InputCoins) == 0 && params.Fee == 0 && !params.HasPrivacy {
+	// check this IsNonPrivacyNonInput (request sign from device) //TODO
+	if len(initializingParams.InputCoins) == 0 && initializingParams.Fee == 0 && !initializingParams.HasPrivacy {
 		//Logger.Log.Debugf("len(inputCoins) == 0 && fee == 0 && !hasPrivacy\n")
-		tx.sigPrivKey = *params.SenderSK
-		if tx.Sig, tx.SigPubKey, err = SignNoPrivacy(params.SenderSK, tx.Hash()[:]); err != nil {
-			utils.Logger.Log.Error(errors.New(fmt.Sprintf("Cannot signOnMessage tx %v\n", err)))
-			return true, utils.NewTransactionErr(utils.SignTxError, err)
-		}
-		return true, nil
+		// tx.sigPrivKey = *params.SenderSK
+		// if tx.Sig, tx.SigPubKey, err = SignNoPrivacy(params.SenderSK, tx.Hash()[:]); err != nil {
+		// 	// utils.Logger.Log.Error(errors.New(fmt.Sprintf("Cannot signOnMessage tx %v\n", err)))
+		// 	return nil, err
+		// }
+		// return &tx, nil
 	}
 
 	// proveTxToken
-
+	// coins conceal here too
+	if err := proveTxPRV(&tx, initializingParams); err != nil {
+		return nil, err
+	}
 	//validate tx param ValidateTxParams
-
-	//conceal coin
-	return tx, nil
+	txSize := tx.GetTxActualSize()
+	if txSize > common.MaxTxSize {
+		return nil, errors.New("Tx exceed max size")
+	}
+	return &tx, nil
 }
 
 // use for prv tx
 func proveTxPRV(tx *tx_ver2.Tx, params *tx_generic.TxPrivacyInitParams) error {
-	outputCoins, err := utils.NewCoinV2ArrayFromPaymentInfoArray(params.PaymentInfo, params.TokenID, params.StateDB)
+	outputCoins, err := NewCoinV2ArrayFromPaymentInfoArray(params.PaymentInfo, params.TokenID)
 	if err != nil {
 		fmt.Printf("Cannot parse outputCoinV2 to outputCoins, error %v \n", err)
 		return err
@@ -124,7 +120,6 @@ func proveTxPRV(tx *tx_ver2.Tx, params *tx_generic.TxPrivacyInitParams) error {
 	// gen tx proof
 	tx.Proof, err = privacy.ProveV2(inputCoins, outputCoins, nil, false, params.PaymentInfo)
 	if err != nil {
-		utils.Logger.Log.Errorf("Error in privacy_v2.Prove, error %v ", err)
 		return err
 	}
 
@@ -184,4 +179,64 @@ func createPrivKeyMlsag(inputCoins []privacy.PlainCoin, outputCoins []*privacy.C
 	}
 	privKeyMlsag[len(inputCoins)] = sumRand
 	return privKeyMlsag, nil
+}
+
+func initializeTxAndParams(account *Account, tx *tx_generic.TxBase, params *tx_generic.TxPrivacyInitParams) error {
+	var err error
+	// senderKeySet := incognitokey.KeySet{}
+	// if err := senderKeySet.InitFromPrivateKey(params.SenderSK); err != nil {
+	// 	utils.Logger.Log.Errorf("Cannot parse Private Key. Err %v", err)
+	// 	return utils.NewTransactionErr(utils.PrivateKeySenderInvalidError, err)
+	// }
+	// tx.sigPrivKey = *params.SenderSK
+	// Tx: initialize some values
+	if tx.LockTime == 0 {
+		tx.LockTime = time.Now().Unix()
+	}
+	tx.Fee = params.Fee
+	tx.Type = common.TxNormalType
+	tx.Metadata = params.MetaData
+
+	tx.PubKeyLastByteSender = account.PaymentAddress.Pk[len(account.PaymentAddress.Pk)-1]
+	//we use ver 2 only
+	tx.Version = 2
+	if tx.Info, err = tx_generic.GetTxInfo(params.Info); err != nil {
+		return err
+	}
+
+	// Params: update balance if overbalance
+	if err = updateParamsWhenOverBalance(params, account.PaymentAddress); err != nil {
+		return err
+	}
+	return nil
+}
+
+func updateParamsWhenOverBalance(params *tx_generic.TxPrivacyInitParams, senderPaymentAddress privacy.PaymentAddress) error {
+	// Calculate sum of all output coins' value
+	sumOutputValue := uint64(0)
+	for _, p := range params.PaymentInfo {
+		sumOutputValue += p.Amount
+	}
+
+	// Calculate sum of all input coins' value
+	sumInputValue := uint64(0)
+	for _, coin := range params.InputCoins {
+		sumInputValue += coin.GetValue()
+	}
+
+	overBalance := int64(sumInputValue - sumOutputValue - params.Fee)
+	// Check if sum of input coins' value is at least sum of output coins' value and tx fee
+	if overBalance < 0 {
+		return fmt.Errorf("Sum of inputs less than outputs: sumInputValue=%d sumOutputValue=%d fee=%d", sumInputValue, sumOutputValue, params.Fee)
+	}
+	// Create a new payment to sender's pk where amount is overBalance if > 0
+	if overBalance > 0 {
+		// Should not check error because have checked before
+		changePaymentInfo := new(privacy.PaymentInfo)
+		changePaymentInfo.Amount = uint64(overBalance)
+		changePaymentInfo.PaymentAddress = senderPaymentAddress
+		params.PaymentInfo = append(params.PaymentInfo, changePaymentInfo)
+	}
+
+	return nil
 }

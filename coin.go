@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/incognitochain/incognito-chain/common"
+	"github.com/incognitochain/incognito-chain/privacy"
 	"github.com/incognitochain/incognito-chain/privacy/coin"
 	"github.com/incognitochain/incognito-chain/privacy/key"
 	"github.com/incognitochain/incognito-chain/privacy/operation"
@@ -72,24 +73,22 @@ func GetKeyImageOfCoins(coinList []*CoinData, OTAKey key.OTAKey) error {
 	return nil
 }
 
-func EncryptCoinV2() {
-
+func NewCoinUniqueOTABasedOnPaymentInfo(paymentInfo *privacy.PaymentInfo, tokenID *common.Hash) (*privacy.CoinV2, error) {
+	c, err := privacy.NewCoinFromPaymentInfo(paymentInfo)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil // No need to check db
 }
 
-// NewCoinV2ArrayFromPaymentInfoArray
-func GenCoinCommitment() {
-
-}
-func GenCoinOTA() {
-
-}
-
-///////////////////////
-
-func GenAssetTag() {
-
-}
-
-func concealInOutputCoins(inputCoins []*coin.CoinV2, outputCoins []*coin.CoinV2) error {
-	return nil
+func NewCoinV2ArrayFromPaymentInfoArray(paymentInfo []*privacy.PaymentInfo, tokenID *common.Hash) ([]*privacy.CoinV2, error) {
+	outputCoins := make([]*privacy.CoinV2, len(paymentInfo))
+	for index, info := range paymentInfo {
+		var err error
+		outputCoins[index], err = NewCoinUniqueOTABasedOnPaymentInfo(info, tokenID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return outputCoins, nil
 }

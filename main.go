@@ -18,6 +18,8 @@ const (
 	MODESIM   = "sim"
 )
 
+var NODEMODE = ""
+
 func main() {
 	modeFlag := flag.String("mode", "light", "daemon mode")
 	rpcFlag := flag.String("rpchost", "127.0.0.1:9334", "rpc host")
@@ -25,22 +27,25 @@ func main() {
 	if err := initAccountService(); err != nil {
 		panic(err)
 	}
+	NODEMODE = *modeFlag
 	switch *modeFlag {
 	case MODELIGHT:
 		node := devframework.NewAppNode("fullnode", devframework.TestNet2Param, true, false)
 		localnode = node
+		rpcnode = node.GetRPC()
 		initCoinService()
 
 	case MODERPC:
 		node := devframework.NewRPCClient(*rpcFlag)
-		_ = node
-
+		rpcnode = node
 		initCoinServiceRPCMode()
 	case MODESIM:
 		node := devframework.NewStandaloneSimulation("simnode", devframework.Config{
 			ChainParam: devframework.NewChainParam(devframework.ID_TESTNET2).SetActiveShardNumber(8),
 			DisableLog: true,
 		})
+		localnode = node
+		rpcnode = node.GetRPC()
 		node.GenerateBlock().NextRound()
 		node.ShowBalance(node.GenesisAccount)
 		acc0, _ := account.NewAccountFromPrivatekey("111111bgk2j6vZQvzq8tkonDLLXEvLkMwBMn5BoLXLpf631boJnPDGEQMGvA1pRfT71Crr7MM2ShvpkxCBWBL2icG22cXSpB8A2XKuezTJ")
