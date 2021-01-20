@@ -26,7 +26,6 @@ var localnode interface {
 	GetBlockchain() *blockchain.BlockChain
 	OnNewBlockFromParticularHeight(chainID int, blkHeight int64, isFinalized bool, f func(bc *blockchain.BlockChain, h common.Hash, height uint64))
 }
-
 var rpcnode *rpcclient.RPCClient
 
 var stateLock sync.Mutex
@@ -81,7 +80,6 @@ func OnNewShardBlock(bc *blockchain.BlockChain, h common.Hash, height uint64) {
 	ShardProcessedState[blk.Header.ShardID] = blk.Header.Height
 	stateLock.Unlock()
 	if (blk.Header.Height % 100) == 0 {
-		// fmt.Println("RestoreShardViews")
 		shardID := blk.Header.ShardID
 		localnode.GetBlockchain().ShardChain[shardID] = blockchain.NewShardChain(int(shardID), multiview.NewMultiView(), localnode.GetBlockchain().GetConfig().BlockGen, localnode.GetBlockchain(), common.GetShardChainKey(shardID))
 		if err := localnode.GetBlockchain().RestoreShardViews(shardID); err != nil {
@@ -138,22 +136,30 @@ func initCoinService() {
 }
 
 func initCoinServiceRPCMode() {
-
+	err := initRPCCoinDB("rpc")
+	if err != nil {
+		panic(err)
+	}
 }
 
-func retrieveCoins(coinHash []string) ([]coin.PlainCoin, error) {
+func retrieveCoins(tokenID string, coinHash []string) ([]coin.PlainCoin, error) {
 	var result []coin.PlainCoin
+	switch NODEMODE {
+	case MODERPC:
 
+	case MODELIGHT, MODESIM:
+
+	}
 	return result, nil
 }
 
-func updateAvaliableCoin(account *Account, keyimages []string) error {
+func updateAvaliableCoin(account *Account, tokenID string, keyimages []string) error {
 	return nil
 }
 
-func chooseCoinsForAccount(account *Account, paymentInfos []*privacy.PaymentInfo, metadataParam metadata.Metadata, privacyCustomTokenParams *transaction.TokenParam) ([]coin.PlainCoin, uint64, error) {
+func chooseCoinsForAccount(accountState *AccountState, paymentInfos []*privacy.PaymentInfo, metadataParam metadata.Metadata, privacyCustomTokenParams *transaction.TokenParam) ([]coin.PlainCoin, uint64, error) {
 	// estimate fee according to 8 recent block
-	shardIDSender := account.ShardID
+	shardIDSender := accountState.Account.ShardID
 	// calculate total amount to send
 	totalAmmount := uint64(0)
 	for _, receiver := range paymentInfos {
@@ -162,8 +168,10 @@ func chooseCoinsForAccount(account *Account, paymentInfos []*privacy.PaymentInfo
 	// get list outputcoins tx
 	prvCoinID := &common.Hash{}
 	prvCoinID.SetBytes(common.PRVCoinID[:])
-	coinHashes := account.AvaliableCoins[prvCoinID.String()]
-	plainCoins, err := retrieveCoins(coinHashes)
+	accountState.lock.RLock()
+	defer accountState.lock.RUnlock()
+	coinHashes := accountState.AvaliableCoins[prvCoinID.String()]
+	plainCoins, err := retrieveCoins(prvCoinID.String(), coinHashes)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -181,7 +189,7 @@ func chooseCoinsForAccount(account *Account, paymentInfos []*privacy.PaymentInfo
 	if overBalanceAmount > 0 {
 		// add more into output for estimate fee
 		paymentInfos = append(paymentInfos, &privacy.PaymentInfo{
-			PaymentAddress: account.PaymentAddress,
+			PaymentAddress: accountState.Account.PaymentAddress,
 			Amount:         overBalanceAmount,
 		})
 	}
@@ -192,7 +200,7 @@ func chooseCoinsForAccount(account *Account, paymentInfos []*privacy.PaymentInfo
 	}
 	beaconHeight := beaconState.BeaconHeight
 	// ver, err := transaction.GetTxVersionFromCoins(candidatePlainCoins)
-	realFee, _, _, err := estimateFee(account.PAstr, false, candidatePlainCoins,
+	realFee, _, _, err := estimateFee(accountState.Account.PAstr, false, candidatePlainCoins,
 		paymentInfos, shardIDSender, true,
 		metadataParam,
 		privacyCustomTokenParams, int64(beaconHeight))
@@ -269,10 +277,8 @@ func chooseBestOutCoinsToSpent(outCoins []coin.PlainCoin, amount uint64) (result
 	}
 	if totalResultOutputCoinAmount < amount {
 		return resultOutputCoins, remainOutputCoins, totalResultOutputCoinAmount, errors.New("Not enough coin")
-	} else {
-		return resultOutputCoins, remainOutputCoins, totalResultOutputCoinAmount, nil
 	}
-	return
+	return resultOutputCoins, remainOutputCoins, totalResultOutputCoinAmount, nil
 }
 
 func estimateFee(

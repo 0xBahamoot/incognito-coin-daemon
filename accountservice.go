@@ -13,17 +13,18 @@ type Account struct {
 	PaymentAddress key.PaymentAddress
 	Viewkey        key.ViewingKey
 	OTAKey         key.PrivateOTAKey
+}
+
+type AccountState struct {
+	Account *Account
+	Balance uint64
+	isReady bool
 
 	lock sync.RWMutex
 	//map[tokenID][]coinHash
 	PendingCoins   map[string][]string //wait for tx to confirm
 	AvaliableCoins map[string][]string //avaliable to use
 	EncryptedCoins map[string][]string //encrypted, dont know whether been used
-}
-
-type AccountState struct {
-	Account *Account
-	Balance uint64
 }
 
 var accountListLck sync.RWMutex
@@ -68,7 +69,6 @@ func getAccountList() map[string]string {
 
 func getAllBalance() map[string]uint64 {
 	var result map[string]uint64
-
 	accountListLck.RLock()
 	result = make(map[string]uint64)
 	for name, account := range accountList {

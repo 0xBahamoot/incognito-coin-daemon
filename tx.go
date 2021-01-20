@@ -22,41 +22,41 @@ type onGoingTxCreationStruct struct {
 
 var onGoingTxCreation onGoingTxCreationStruct
 
-func CreateTxPRV(account *Account, tokenID string, paymentInfo []*privacy.PaymentInfo, metadataParam metadata.Metadata) (metadata.Transaction, error) {
+func CreateTxPRV(accountState *AccountState, tokenID string, paymentInfo []*privacy.PaymentInfo, metadataParam metadata.Metadata) (metadata.Transaction, error) {
 	//create tx param
 	rawTxParam := bean.CreateRawTxParam{
-		ShardIDSender:        account.ShardID,
+		ShardIDSender:        accountState.Account.ShardID,
 		PaymentInfos:         paymentInfo,
 		HasPrivacyCoin:       true,
 		Info:                 nil,
 		EstimateFeeCoinPerKb: 0,
 	}
-	tx, err := buildRawTransaction(account, &rawTxParam, metadataParam)
+	tx, err := buildRawTransaction(accountState, &rawTxParam, metadataParam)
 	if err != nil {
 		return nil, err
 	}
 	return tx, nil
 }
 
-func CreateTxToken(account *Account, tokenID string, paymentInfo []*privacy.PaymentInfo, metadataParam metadata.Metadata) (metadata.Transaction, error) {
+func CreateTxToken(accountState *AccountState, tokenID string, paymentInfo []*privacy.PaymentInfo, metadataParam metadata.Metadata) (metadata.Transaction, error) {
 	//create tx param
 	rawTxParam := bean.CreateRawTxParam{
-		ShardIDSender:        account.ShardID,
+		ShardIDSender:        accountState.Account.ShardID,
 		PaymentInfos:         paymentInfo,
 		HasPrivacyCoin:       true,
 		Info:                 nil,
 		EstimateFeeCoinPerKb: 0,
 	}
-	tx, err := buildRawTransaction(account, &rawTxParam, metadataParam)
+	tx, err := buildRawTransaction(accountState, &rawTxParam, metadataParam)
 	if err != nil {
 		return nil, err
 	}
 	return tx, nil
 }
 
-func buildRawTransaction(account *Account, params *bean.CreateRawTxParam, meta metadata.Metadata) (metadata.Transaction, error) {
+func buildRawTransaction(accountState *AccountState, params *bean.CreateRawTxParam, meta metadata.Metadata) (metadata.Transaction, error) {
 	// get output coins to spend and real fee
-	inputCoins, realFee, err := chooseCoinsForAccount(account,
+	inputCoins, realFee, err := chooseCoinsForAccount(accountState,
 		params.PaymentInfos, meta, nil)
 	if err != nil {
 		return nil, err
@@ -79,7 +79,7 @@ func buildRawTransaction(account *Account, params *bean.CreateRawTxParam, meta m
 	}
 	// we use tx ver 2 only
 	var tx tx_ver2.Tx
-	if err := initializeTxAndParams(account, &tx.TxBase, initializingParams); err != nil {
+	if err := initializeTxAndParams(accountState.Account, &tx.TxBase, initializingParams); err != nil {
 		return nil, err
 	}
 
