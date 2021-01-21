@@ -45,13 +45,12 @@ func saveAccount(account Account) error {
 	return nil
 }
 
-func loadAccountsFromDB() ([]*Account, error) {
-	var result []*Account
-	accountListLck.RLock()
-	for _, account := range accountList {
-		_ = account
-	}
-	accountListLck.RUnlock()
+func loadAccountsFromDB() (map[string]*Account, error) {
+	var result map[string]*Account
+	result = make(map[string]*Account)
+	// for _, account := range accountList {
+	// 	_ = account
+	// }
 	return result, nil
 }
 

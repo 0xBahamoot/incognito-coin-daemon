@@ -4,7 +4,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/incognitochain/incognito-chain/common"
 	"github.com/incognitochain/incognito-chain/privacy/key"
+	"github.com/incognitochain/incognito-chain/wallet"
 )
 
 type Account struct {
@@ -31,12 +33,55 @@ var accountListLck sync.RWMutex
 var accountList map[string]*AccountState
 var currentAccount string
 
-func importAccount(name string, paymentAddr string, viewOTAKey string) error {
+func (as *AccountState) init() {
+	as.Balance = 0
+	as.isReady = false
+	as.PendingCoins = make(map[string][]string)
+	as.AvaliableCoins = make(map[string][]string)
+	as.EncryptedCoins = make(map[string][]string)
+}
+
+func importAccount(name string, paymentAddr string, viewKey string, OTAKey string) error {
+	accountListLck.Lock()
+	defer accountListLck.Unlock()
+	accState := new(AccountState)
+	accState.init()
+	wl, err := wallet.Base58CheckDeserialize(paymentAddr)
+	if err != nil {
+		return err
+	}
+	acc := new(Account)
+	acc.PaymentAddress = wl.KeySet.PaymentAddress
+	lastByte := wl.KeySet.PaymentAddress.Pk[len(wl.KeySet.PaymentAddress.Pk)-1]
+	shardID := common.GetShardIDFromLastByte(lastByte)
+	acc.ShardID = shardID
+	accState.Account = acc
+	accountList[name] = accState
 	return nil
 }
 
 func initAccountService() error {
 	accountList = make(map[string]*AccountState)
+	accs, err := loadAccountsFromDB()
+	if err != nil {
+		return err
+	}
+	accountListLck.Lock()
+	for accName, acc := range accs {
+		accState := new(AccountState)
+		accState.init()
+		wl, err := wallet.Base58CheckDeserialize(acc.PAstr)
+		if err != nil {
+			return err
+		}
+		acc.PaymentAddress = wl.KeySet.PaymentAddress
+		lastByte := wl.KeySet.PaymentAddress.Pk[len(wl.KeySet.PaymentAddress.Pk)-1]
+		shardID := common.GetShardIDFromLastByte(lastByte)
+		acc.ShardID = shardID
+		accState.Account = acc
+		accountList[accName] = accState
+	}
+	accountListLck.Unlock()
 	return nil
 }
 
