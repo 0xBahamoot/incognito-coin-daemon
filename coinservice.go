@@ -98,7 +98,7 @@ func GetCoins(keyset *incognitokey.KeySet, tokenID *common.Hash) ([]privacy.Plai
 		tokenID = &common.Hash{}
 		tokenID.SetBytes(common.PRVCoinID[:])
 	}
-	outcoinList, err := localnode.GetBlockchain().TryGetAllOutputCoinsByKeyset(keyset, shardIDSender, tokenID, true)
+	outcoinList, err := localnode.GetBlockchain().TryGetAllOutputCoinsByKeyset(keyset, shardIDSender, tokenID, false)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +132,7 @@ func initCoinService() {
 	for i := 0; i < localnode.GetBlockchain().GetChainParams().ActiveShards; i++ {
 		localnode.OnNewBlockFromParticularHeight(i, int64(ShardProcessedState[byte(i)]), true, OnNewShardBlock)
 	}
-	go startService()
+	go startService("9000")
 }
 
 func initCoinServiceRPCMode() {

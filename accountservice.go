@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"sync"
 	"time"
 
@@ -44,6 +45,14 @@ func (as *AccountState) init() {
 func importAccount(name string, paymentAddr string, viewKey string, OTAKey string) error {
 	accountListLck.Lock()
 	defer accountListLck.Unlock()
+	if _, ok := accountList[name]; ok {
+		return errors.New("this account name already existed")
+	}
+	for name, acc := range accountList {
+		if acc.Account.PAstr == paymentAddr {
+			return errors.New("this account already added as " + name)
+		}
+	}
 	accState := new(AccountState)
 	accState.init()
 	wl, err := wallet.Base58CheckDeserialize(paymentAddr)
@@ -57,6 +66,9 @@ func importAccount(name string, paymentAddr string, viewKey string, OTAKey strin
 	acc.ShardID = shardID
 	accState.Account = acc
 	accountList[name] = accState
+	if err := saveAccount(name, acc); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -82,13 +94,14 @@ func initAccountService() error {
 		accountList[accName] = accState
 	}
 	accountListLck.Unlock()
+	go scanForNewCoins()
 	return nil
 }
 
 func scanForNewCoins() {
 	for {
 		if len(accountList) == 0 {
-			time.Sleep(15 * time.Second)
+			time.Sleep(20 * time.Second)
 			continue
 		}
 		accountListLck.RLock()

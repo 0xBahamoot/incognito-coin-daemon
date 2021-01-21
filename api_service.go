@@ -17,14 +17,16 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-func startService() {
+func startService(port string) {
 	http.HandleFunc("/getbalance", getBalanceHandler)
-	http.HandleFunc("/importkey", importKeyHandler)
+	http.HandleFunc("/importaccount", importAccountHandler)
 	http.HandleFunc("/getcoinstodecrypt", getCoinsHandler)
 	http.HandleFunc("/getdaemonstate", getStateHandler)
 	http.HandleFunc("/createtx", createTxHandler)
 	http.HandleFunc("/cancelAllTxs", cancelAllTxsHandler)
-	err := http.ListenAndServe("127.0.0.1:9000", nil)
+	http.HandleFunc("/getaccountlist", getAccountListHandler)
+	http.HandleFunc("/removeaccount", removeAccountHandler)
+	err := http.ListenAndServe("127.0.0.1:"+port, nil)
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)
 	}
@@ -35,7 +37,7 @@ func getStateHandler(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
-func importKeyHandler(w http.ResponseWriter, r *http.Request) {
+func importAccountHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if r.Method != "GET" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -43,6 +45,16 @@ func importKeyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	return
 }
+
+func removeAccountHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	return
+}
+
 func getCoinsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if r.Method != "GET" {
@@ -106,4 +118,12 @@ func createTxHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = conn
+}
+
+func getAccountListHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 }

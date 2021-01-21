@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"path/filepath"
 
@@ -40,8 +41,23 @@ func initRPCCoinDB(datadir string) error {
 	return nil
 }
 
-func saveAccount(account Account) error {
-	// accountBytes :=
+func saveAccount(name string, account *Account) error {
+	accountBytes := []byte{}
+	accountBytes = append(accountBytes, account.Viewkey.Rk...)
+	accountBytes = append(accountBytes, account.OTAKey...)
+	accountBytes = append(accountBytes, []byte(account.PAstr)...)
+	err := accountDB.Put([]byte(name), accountBytes)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func deleteAccount(name string) error {
+	err := accountDB.Delete([]byte(name))
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -58,7 +74,7 @@ func saveKeyImages(keyImages map[string][]byte, tokenID string, paymentAddrHash 
 	batch := keyimageDB.NewBatch()
 	prefix := coinprefix(paymentAddrHash, tokenID)
 	for commitmentHash, keyImage := range keyImages {
-		key := fmt.Sprintf("-%s", commitmentHash)
+		key := fmt.Sprintf("%s", commitmentHash)
 		keyBytes := append(prefix, []byte(key)...)
 		err := batch.Put(keyBytes, keyImage)
 		if err != nil {
@@ -77,11 +93,11 @@ func getAllKeyImages(paymentAddrHash string, tokenID string) (map[string][]byte,
 	prefix := coinprefix(paymentAddrHash, tokenID)
 	iter := keyimageDB.NewIteratorWithPrefix(prefix)
 	for iter.Next() {
-
+		v := iter.Value()
+		result[string(iter.Key()[8:])] = v
 	}
 	iter.Release()
 	err := iter.Error()
-
 	return result, err
 }
 
@@ -89,15 +105,28 @@ func getUnusedKeyImages(paymentAddrHash string, tokenID string) (map[string][]by
 	var result map[string][]byte
 	result = make(map[string][]byte)
 	prefix := coinprefix(paymentAddrHash, tokenID)
-
-	return result, nil
+	iter := keyimageDB.NewIteratorWithPrefix(prefix)
+	for iter.Next() {
+		v := iter.Value()
+		if bytes.Compare(v, usedkeyimage) == 0 {
+			continue
+		}
+		result[string(iter.Key()[8:])] = v
+	}
+	iter.Release()
+	err := iter.Error()
+	return result, err
 }
 
-func updateUsedKeyImages(paymentAddrHash string, tokenID string, coinHashes []string) error {
+func updateUsedKeyImages(paymentAddrHash string, tokenID string, coinsPubkey []string) error {
 	batch := keyimageDB.NewBatch()
 	prefix := coinprefix(paymentAddrHash, tokenID)
-	for _, coin := range coinHashes {
-
+	for _, coinPK := range coinsPubkey {
+		key := fmt.Sprintf("%s", coinPK)
+		keyBytes := append(prefix, []byte(key)...)
+		if err := batch.Put(keyBytes, usedkeyimage); err != nil {
+			return err
+		}
 	}
 	if err := batch.Write(); err != nil {
 		return err
@@ -106,9 +135,40 @@ func updateUsedKeyImages(paymentAddrHash string, tokenID string, coinHashes []st
 }
 
 //this function is used when RPCMODE
-func saveCoins(paymentAddrHash string, tokenID string, coins []*coin.PlainCoin) error {
+func saveCoins(paymentAddrHash string, tokenID string, coins []*coin.CoinV2) error {
+	batch := RPCCoinDB.NewBatch()
 	prefix := coinprefix(paymentAddrHash, tokenID)
+	for _, coin := range coins {
+		key := fmt.Sprintf("%s", coin.GetPublicKey().ToBytesS())
+		keyBytes := append(prefix, []byte(key)...)
+		if err := batch.Put(keyBytes, coin.Bytes()); err != nil {
+			return err
+		}
+	}
+
+	if err := batch.Write(); err != nil {
+		return err
+	}
 	return nil
+}
+
+//this function is used when RPCMODE
+func getCoins(paymentAddrHash string, tokenID string, coinsPubkey []string) ([]*coin.CoinV2, error) {
+	var result []*coin.CoinV2
+	prefix := coinprefix(paymentAddrHash, tokenID)
+	iter := RPCCoinDB.NewIteratorWithPrefix(prefix)
+	for iter.Next() {
+		v := iter.Value()
+		if bytes.Compare(v, usedkeyimage) == 0 {
+			continue
+		}
+		newCoin := new(coin.CoinV2)
+		newCoin.SetBytes(v)
+		result = append(result, newCoin)
+	}
+	iter.Release()
+	err := iter.Error()
+	return result, err
 }
 
 // func getUnusedCoins(paymentAddrHash string,tokenID string) []
