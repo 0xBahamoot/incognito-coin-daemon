@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/incognitochain/incognito-chain/common"
+	"github.com/incognitochain/incognito-chain/dataaccessobject/statedb"
 	"github.com/incognitochain/incognito-chain/incdb"
 	"github.com/incognitochain/incognito-chain/privacy/coin"
+	"github.com/incognitochain/incognito-chain/wallet"
 	"golang.org/x/crypto/sha3"
 )
 
 var accountDB incdb.Database
 var keyimageDB incdb.Database
-var RPCCoinDB incdb.Database
+var coinDB incdb.Database
 
 func initAccountDB(datadir string) error {
 	temp, err := incdb.Open("leveldb", filepath.Join(datadir, "accounts"))
@@ -32,12 +35,12 @@ func initKeyimageDB(datadir string) error {
 	return nil
 }
 
-func initRPCCoinDB(datadir string) error {
+func initcoinDB(datadir string) error {
 	temp, err := incdb.Open("leveldb", filepath.Join(datadir, "coins"))
 	if err != nil {
 		return err
 	}
-	RPCCoinDB = temp
+	coinDB = temp
 	return nil
 }
 
@@ -133,15 +136,31 @@ func updateUsedKeyImages(paymentAddrHash string, tokenID string, coinsPubkey []s
 	}
 	return nil
 }
-
-//this function is used when RPCMODE
-func saveCoins(paymentAddrHash string, tokenID string, coins []*coin.CoinV2) error {
-	batch := RPCCoinDB.NewBatch()
-	prefix := coinprefix(paymentAddrHash, tokenID)
+func saveCoins(paymentAddr string, tokenID string, coins []*coin.CoinV2) error {
+	batch := coinDB.NewBatch()
+	prefix := coinprefix(paymentAddr, tokenID)
 	for _, coin := range coins {
 		key := fmt.Sprintf("%s", coin.GetPublicKey().ToBytesS())
 		keyBytes := append(prefix, []byte(key)...)
-		if err := batch.Put(keyBytes, coin.Bytes()); err != nil {
+		var value []byte
+		switch NODEMODE {
+		case MODERPC:
+			value = coin.Bytes()
+		case MODELIGHT, MODESIM:
+			wl, err := wallet.Base58CheckDeserialize(paymentAddr)
+			if err != nil {
+				return err
+			}
+			lastByte := wl.KeySet.PaymentAddress.Pk[len(wl.KeySet.PaymentAddress.Pk)-1]
+			shardIDSender := common.GetShardIDFromLastByte(lastByte)
+			tokenIDHash, err := common.Hash{}.NewHashFromStr(tokenID)
+			if err != nil {
+				return err
+			}
+			//statedb already save this coin so we only need to save the key on statedb as value to access it later via statedb
+			value = statedb.GenerateOutputCoinObjectKey(*tokenIDHash, shardIDSender, coin.GetPublicKey().ToBytesS(), coin.Bytes()).Bytes()
+		}
+		if err := batch.Put(keyBytes, value); err != nil {
 			return err
 		}
 	}
@@ -153,10 +172,10 @@ func saveCoins(paymentAddrHash string, tokenID string, coins []*coin.CoinV2) err
 }
 
 //this function is used when RPCMODE
-func getCoins(paymentAddrHash string, tokenID string, coinsPubkey []string) ([]*coin.CoinV2, error) {
+func getCoins(paymentAddr string, tokenID string, coinsPubkey []string) ([]*coin.CoinV2, error) {
 	var result []*coin.CoinV2
-	prefix := coinprefix(paymentAddrHash, tokenID)
-	iter := RPCCoinDB.NewIteratorWithPrefix(prefix)
+	prefix := coinprefix(paymentAddr, tokenID)
+	iter := coinDB.NewIteratorWithPrefix(prefix)
 	for iter.Next() {
 		v := iter.Value()
 		if bytes.Compare(v, usedkeyimage) == 0 {
@@ -169,6 +188,14 @@ func getCoins(paymentAddrHash string, tokenID string, coinsPubkey []string) ([]*
 	iter.Release()
 	err := iter.Error()
 	return result, err
+}
+
+func checkCoinExist(paymentAddr string, tokenID string, coinPubkey string) bool {
+	prefix := coinprefix(paymentAddr, tokenID)
+	key := fmt.Sprintf("%s", coinPubkey)
+	keyBytes := append(prefix, []byte(key)...)
+	result, _ := coinDB.Has(keyBytes)
+	return result
 }
 
 // func getUnusedCoins(paymentAddrHash string,tokenID string) []

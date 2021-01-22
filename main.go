@@ -24,6 +24,10 @@ func main() {
 	modeFlag := flag.String("mode", "light", "daemon mode")
 	rpcFlag := flag.String("rpchost", "127.0.0.1:9334", "rpc host")
 	flag.Parse()
+	err := initcoinDB("coin")
+	if err != nil {
+		panic(err)
+	}
 	if err := initAccountService(); err != nil {
 		panic(err)
 	}
@@ -34,7 +38,6 @@ func main() {
 		localnode = node
 		rpcnode = node.GetRPC()
 		initCoinService()
-
 	case MODERPC:
 		node := devframework.NewRPCClient(*rpcFlag)
 		rpcnode = node
@@ -55,7 +58,7 @@ func main() {
 			node.GenerateBlock().NextRound()
 		}
 
-		l, err := node.RPC.API_ListOutputCoins(acc0.PrivateKey)
+		l, err := node.RPC.API_ListOutputCoins(acc0.PrivateKey, "")
 		if err != nil {
 			panic(err)
 		}

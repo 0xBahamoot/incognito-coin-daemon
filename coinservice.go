@@ -12,12 +12,13 @@ import (
 	"github.com/incognitochain/incognito-chain/blockchain"
 	"github.com/incognitochain/incognito-chain/common"
 	"github.com/incognitochain/incognito-chain/dataaccessobject/statedb"
-	"github.com/incognitochain/incognito-chain/incognitokey"
 	"github.com/incognitochain/incognito-chain/metadata"
 	"github.com/incognitochain/incognito-chain/multiview"
 	"github.com/incognitochain/incognito-chain/privacy"
 	"github.com/incognitochain/incognito-chain/privacy/coin"
+	"github.com/incognitochain/incognito-chain/rpcserver/jsonresult"
 	"github.com/incognitochain/incognito-chain/transaction"
+	"github.com/incognitochain/incognito-chain/wallet"
 	"github.com/syndtr/goleveldb/leveldb"
 )
 
@@ -91,16 +92,40 @@ func OnNewShardBlock(bc *blockchain.BlockChain, h common.Hash, height uint64) {
 	}
 }
 
-func GetCoins(keyset *incognitokey.KeySet, tokenID *common.Hash) ([]privacy.PlainCoin, error) {
-	lastByte := keyset.PaymentAddress.Pk[len(keyset.PaymentAddress.Pk)-1]
-	shardIDSender := common.GetShardIDFromLastByte(lastByte)
+func GetCoinsByPaymentAddress(paymentAddr string, tokenID *common.Hash) ([]privacy.PlainCoin, error) {
+	var outcoinList []privacy.PlainCoin
 	if tokenID == nil {
 		tokenID = &common.Hash{}
 		tokenID.SetBytes(common.PRVCoinID[:])
 	}
-	outcoinList, err := localnode.GetBlockchain().TryGetAllOutputCoinsByKeyset(keyset, shardIDSender, tokenID, false)
-	if err != nil {
-		return nil, err
+	switch NODEMODE {
+	case MODERPC:
+		coinList, err := rpcnode.API_ListOutputCoins(paymentAddr, tokenID.String())
+		if err != nil {
+			return nil, err
+		}
+		for _, out := range coinList.Outputs {
+			for _, c := range out {
+				cV2, err := jsonresult.NewCoinFromJsonOutCoin(c)
+				if err != nil {
+					panic(err)
+				}
+				cv2 := cV2.(*coin.CoinV2)
+				outcoinList = append(outcoinList, cv2)
+			}
+		}
+	case MODELIGHT, MODESIM:
+		wl, err := wallet.Base58CheckDeserialize(paymentAddr)
+		if err != nil {
+			return nil, err
+		}
+		lastByte := wl.KeySet.PaymentAddress.Pk[len(wl.KeySet.PaymentAddress.Pk)-1]
+		shardIDSender := common.GetShardIDFromLastByte(lastByte)
+
+		outcoinList, err = localnode.GetBlockchain().TryGetAllOutputCoinsByKeyset(&wl.KeySet, shardIDSender, tokenID, false)
+		if err != nil {
+			return nil, err
+		}
 	}
 	fmt.Println("len(outcoinList)", len(outcoinList))
 	return outcoinList, nil
@@ -136,13 +161,10 @@ func initCoinService() {
 }
 
 func initCoinServiceRPCMode() {
-	err := initRPCCoinDB("rpc")
-	if err != nil {
-		panic(err)
-	}
 }
 
-func retrieveCoins(tokenID string, coinHash []string) ([]coin.PlainCoin, error) {
+//retrieve coins via coin pubkey on db
+func retrieveCoins(tokenID string, coinPubkey []string) ([]coin.PlainCoin, error) {
 	var result []coin.PlainCoin
 	switch NODEMODE {
 	case MODERPC:
@@ -153,10 +175,9 @@ func retrieveCoins(tokenID string, coinHash []string) ([]coin.PlainCoin, error) 
 	return result, nil
 }
 
-func updateAvaliableCoin(account *Account, tokenID string, keyimages []string) error {
-	return nil
-}
-
+//----------------------------------------
+//FUNCTIONS USED FOR CREATING TX
+//
 func chooseCoinsForAccount(accountState *AccountState, paymentInfos []*privacy.PaymentInfo, metadataParam metadata.Metadata, privacyCustomTokenParams *transaction.TokenParam) ([]coin.PlainCoin, uint64, error) {
 	// estimate fee according to 8 recent block
 	shardIDSender := accountState.Account.ShardID
@@ -170,7 +191,7 @@ func chooseCoinsForAccount(accountState *AccountState, paymentInfos []*privacy.P
 	prvCoinID.SetBytes(common.PRVCoinID[:])
 	accountState.lock.RLock()
 	defer accountState.lock.RUnlock()
-	coinHashes := accountState.AvaliableCoins[prvCoinID.String()]
+	coinHashes := accountState.AvailableCoins[prvCoinID.String()]
 	plainCoins, err := retrieveCoins(prvCoinID.String(), coinHashes)
 	if err != nil {
 		return nil, 0, err
@@ -315,3 +336,7 @@ func estimateFee(
 	realFee = uint64(estimateFeeCoinPerKb) * uint64(estimateTxSizeInKb)
 	return realFee, estimateFeeCoinPerKb, estimateTxSizeInKb, nil
 }
+
+//
+//FUNCTIONS USED FOR CREATING TX
+//----------------------------------------

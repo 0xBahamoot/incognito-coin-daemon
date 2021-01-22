@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/gorilla/websocket"
-	"github.com/incognitochain/incognito-chain/wallet"
 )
 
 var upgrader = websocket.Upgrader{
@@ -23,7 +22,7 @@ func startService(port string) {
 	http.HandleFunc("/getcoinstodecrypt", getCoinsHandler)
 	http.HandleFunc("/getdaemonstate", getStateHandler)
 	http.HandleFunc("/createtx", createTxHandler)
-	http.HandleFunc("/cancelAllTxs", cancelAllTxsHandler)
+	http.HandleFunc("/cancelalltxs", cancelAllTxsHandler)
 	http.HandleFunc("/getaccountlist", getAccountListHandler)
 	http.HandleFunc("/removeaccount", removeAccountHandler)
 	err := http.ListenAndServe("127.0.0.1:"+port, nil)
@@ -63,12 +62,12 @@ func getCoinsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	key := r.URL.Query().Get("key")
-	wl, err := wallet.Base58CheckDeserialize(key)
-	if err != nil {
-		http.Error(w, "Unexpected error", http.StatusInternalServerError)
-		return
-	}
-	outcoins, err := GetCoins(&wl.KeySet, nil)
+	// wl, err := wallet.Base58CheckDeserialize(key)
+	// if err != nil {
+	// 	http.Error(w, "Unexpected error", http.StatusInternalServerError)
+	// 	return
+	// }
+	outcoins, err := GetCoinsByPaymentAddress(key, nil)
 	if err != nil {
 		http.Error(w, "Unexpected error", http.StatusInternalServerError)
 		return
