@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -19,14 +21,15 @@ type Account struct {
 }
 
 type AccountState struct {
-	Account *Account
-	Balance uint64
-	isReady bool
+	Account          *Account
+	Balance          uint64
+	AvailableBalance uint64
+	isReady          bool
 
 	lock sync.RWMutex
-	//map[tokenID][]coinHash
+	//map[tokenID][]coinpubkey
 	PendingCoins   map[string][]string //wait for tx to confirm
-	AvaliableCoins map[string][]string //avaliable to use
+	AvailableCoins map[string][]string //avaliable to use
 	EncryptedCoins map[string][]string //encrypted, dont know whether been used
 }
 
@@ -38,7 +41,7 @@ func (as *AccountState) init() {
 	as.Balance = 0
 	as.isReady = false
 	as.PendingCoins = make(map[string][]string)
-	as.AvaliableCoins = make(map[string][]string)
+	as.AvailableCoins = make(map[string][]string)
 	as.EncryptedCoins = make(map[string][]string)
 }
 
@@ -64,8 +67,15 @@ func importAccount(name string, paymentAddr string, viewKey string, OTAKey strin
 	lastByte := wl.KeySet.PaymentAddress.Pk[len(wl.KeySet.PaymentAddress.Pk)-1]
 	shardID := common.GetShardIDFromLastByte(lastByte)
 	acc.ShardID = shardID
+	viewKeyBytes, _ := hex.DecodeString(viewKey)
+	acc.Viewkey.Rk = viewKeyBytes
+	acc.Viewkey.Pk = wl.KeySet.PaymentAddress.Pk
+	OTAKeyBytes, _ := hex.DecodeString(OTAKey)
+	acc.OTAKey = OTAKeyBytes
+	acc.PAstr = paymentAddr
 	accState.Account = acc
 	accountList[name] = accState
+
 	if err := saveAccount(name, acc); err != nil {
 		return err
 	}
@@ -105,12 +115,43 @@ func scanForNewCoins() {
 			continue
 		}
 		accountListLck.RLock()
-		for name, account := range accountList {
-			_ = account
-			_ = name
+		////////////////////////////////////
+		// add more token
+		var wg sync.WaitGroup
+		var tokenID *common.Hash
+		if tokenID == nil {
+			tokenID = &common.Hash{}
+			tokenID.SetBytes(common.PRVCoinID[:])
 		}
+
+		for name, account := range accountList {
+			wg.Add(1)
+			go func(n string, a *AccountState) {
+				defer wg.Done()
+				a.lock.Lock()
+				fmt.Printf("scan coins for account %s\n", n)
+				a.isReady = false
+				coinList, err := GetCoinsByPaymentAddress(a.Account.PAstr, a.Account.OTAKey, nil)
+				if err != nil {
+					fmt.Println(err)
+				}
+				if len(coinList) > 0 {
+					coins, err := checkCoinExistAndSave(a.Account.PAstr, tokenID.String(), coinList)
+					if err != nil {
+						panic(err)
+					}
+					a.EncryptedCoins[tokenID.String()] = append(a.EncryptedCoins[tokenID.String()], coins...)
+				}
+				a.lock.Unlock()
+				a.isReady = true
+				fmt.Printf("account %s is ready\n", n)
+			}(name, account)
+		}
+		wg.Wait()
+		////////////////
 		accountListLck.RUnlock()
-		time.Sleep(40 * time.Second)
+
+		time.Sleep(20 * time.Second)
 	}
 }
 
@@ -134,4 +175,8 @@ func getAllBalance() map[string]uint64 {
 	}
 	accountListLck.RUnlock()
 	return result
+}
+
+func getBalance(accountName string) uint64 {
+	return accountList[accountName].AvailableBalance
 }
