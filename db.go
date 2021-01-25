@@ -5,11 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/incognitochain/incognito-chain/common"
-	"github.com/incognitochain/incognito-chain/dataaccessobject/statedb"
 	"github.com/incognitochain/incognito-chain/incdb"
 	"github.com/incognitochain/incognito-chain/privacy/coin"
-	"github.com/incognitochain/incognito-chain/wallet"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -151,23 +148,11 @@ func saveCoins(paymentAddr string, tokenID string, coins []coin.PlainCoin) error
 		key := fmt.Sprintf("%s", coin.GetPublicKey().ToBytesS())
 		keyBytes := append(prefix, []byte(key)...)
 		var value []byte
-		switch NODEMODE {
-		case MODERPC:
-			value = coin.Bytes()
-		case MODELIGHT, MODESIM:
-			wl, err := wallet.Base58CheckDeserialize(paymentAddr)
-			if err != nil {
-				return err
-			}
-			lastByte := wl.KeySet.PaymentAddress.Pk[len(wl.KeySet.PaymentAddress.Pk)-1]
-			shardIDSender := common.GetShardIDFromLastByte(lastByte)
-			tokenIDHash, err := common.Hash{}.NewHashFromStr(tokenID)
-			if err != nil {
-				return err
-			}
-			//statedb already save this coin so we only need to save the key on statedb as value to access it later via statedb
-			value = statedb.GenerateOutputCoinObjectKey(*tokenIDHash, shardIDSender, coin.GetPublicKey().ToBytesS(), coin.Bytes()).Bytes()
+		value = coin.Bytes()
+		if coin.GetVersion() != 2 {
+			panic("oops")
 		}
+		fmt.Println("len(keyBytes)", len(keyBytes))
 		if err := batch.Put(keyBytes, value); err != nil {
 			return err
 		}
@@ -186,11 +171,14 @@ func getCoins(paymentAddr string, tokenID string, coinsPubkey []string) ([]coin.
 	iter := coinDB.NewIteratorWithPrefix(prefix)
 	for iter.Next() {
 		v := iter.Value()
-		if bytes.Compare(v, usedkeyimage) == 0 {
+		if bytes.Equal(v, usedkeyimage) {
 			continue
 		}
 		newCoin := new(coin.CoinV2)
-		newCoin.SetBytes(v)
+		err := newCoin.SetBytes(v)
+		if err != nil {
+			panic(err)
+		}
 		result = append(result, newCoin)
 	}
 	iter.Release()
@@ -200,9 +188,11 @@ func getCoins(paymentAddr string, tokenID string, coinsPubkey []string) ([]coin.
 
 func checkCoinExist(paymentAddr string, tokenID string, coinPubkey string) bool {
 	prefix := coinprefix(paymentAddr, tokenID)
-	key := fmt.Sprintf("%s", coinPubkey)
-	keyBytes := append(prefix, []byte(key)...)
-	result, _ := coinDB.Has(keyBytes)
+	keyBytes := append(prefix, []byte(coinPubkey)...)
+	result, err := coinDB.Has(keyBytes)
+	if err != nil {
+		panic(err)
+	}
 	return result
 }
 
@@ -226,23 +216,11 @@ func checkCoinExistAndSave(paymentAddr string, tokenID string, coins []coin.Plai
 		keyBytes := append(prefix, []byte(key)...)
 		if !checkCoinExist(paymentAddr, tokenID, key) {
 			var value []byte
-			switch NODEMODE {
-			case MODERPC:
-				value = coin.Bytes()
-			case MODELIGHT, MODESIM:
-				wl, err := wallet.Base58CheckDeserialize(paymentAddr)
-				if err != nil {
-					return nil, err
-				}
-				lastByte := wl.KeySet.PaymentAddress.Pk[len(wl.KeySet.PaymentAddress.Pk)-1]
-				shardIDSender := common.GetShardIDFromLastByte(lastByte)
-				tokenIDHash, err := common.Hash{}.NewHashFromStr(tokenID)
-				if err != nil {
-					return nil, err
-				}
-				//statedb already save this coin so we only need to save the key on statedb as value to access it later via statedb
-				value = statedb.GenerateOutputCoinObjectKey(*tokenIDHash, shardIDSender, coin.GetPublicKey().ToBytesS(), coin.Bytes()).Bytes()
+			value = coin.Bytes()
+			if coin.GetVersion() != 2 {
+				panic("oops")
 			}
+			fmt.Println("len(keyBytes)", len(keyBytes))
 			if err := batch.Put(keyBytes, value); err != nil {
 				return nil, err
 			}

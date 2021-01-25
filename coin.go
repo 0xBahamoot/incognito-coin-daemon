@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"errors"
 
 	"github.com/incognitochain/incognito-chain/common"
@@ -91,4 +92,26 @@ func NewCoinV2ArrayFromPaymentInfoArray(paymentInfo []*privacy.PaymentInfo, toke
 		}
 	}
 	return outputCoins, nil
+}
+
+func ExtractCoinEncryptKeyImgData(coins []coin.PlainCoin, OTAKey *key.OTAKey) (map[string][]byte, error) {
+	result := make(map[string][]byte)
+	for _, c := range coins {
+		if c.GetVersion() != 2 {
+			panic("oops")
+		}
+		cv2 := c.(*coin.CoinV2)
+		_, txRandomOTAPoint, index, err := cv2.GetTxRandomDetail()
+		if err != nil {
+			return nil, err
+		}
+		rK := new(operation.Point).ScalarMult(txRandomOTAPoint, OTAKey.GetOTASecretKey())  //(r_ota*G) * k = r_ota * K
+		H := operation.HashToScalar(append(rK.ToBytesS(), common.Uint32ToBytes(index)...)) // Hash(r_ota*K, index)
+		HBytes := H.ToBytesS()
+		PubkeyBytes := c.GetPublicKey().ToBytesS()
+		data := []byte{}
+		data = append(data, HBytes...)
+		result[hex.EncodeToString(PubkeyBytes)] = data
+	}
+	return result, nil
 }

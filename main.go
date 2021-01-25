@@ -56,9 +56,9 @@ func main() {
 		localnode = node
 		rpcnode = node.GetRPC()
 		node.GenerateBlock().NextRound()
+
 		node.ShowBalance(node.GenesisAccount)
 		acc0, _ := account.NewAccountFromPrivatekey("111111bgk2j6vZQvzq8tkonDLLXEvLkMwBMn5BoLXLpf631boJnPDGEQMGvA1pRfT71Crr7MM2ShvpkxCBWBL2icG22cXSpB8A2XKuezTJ")
-
 		OTAKey := hex.EncodeToString(acc0.Keyset.OTAKey.GetOTASecretKey().ToBytesS())
 		viewKey := hex.EncodeToString(acc0.Keyset.ReadonlyKey.Rk)
 		importAccount("testacc", acc0.PaymentAddress, viewKey, OTAKey)

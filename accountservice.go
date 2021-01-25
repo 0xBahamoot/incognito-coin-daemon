@@ -131,7 +131,7 @@ func scanForNewCoins() {
 				a.lock.Lock()
 				fmt.Printf("scan coins for account %s\n", n)
 				a.isReady = false
-				coinList, err := GetCoinsByPaymentAddress(a.Account.PAstr, a.Account.OTAKey, nil)
+				coinList, err := GetCoinsByPaymentAddress(a.Account, nil)
 				if err != nil {
 					fmt.Println(err)
 				}
@@ -140,6 +140,7 @@ func scanForNewCoins() {
 					if err != nil {
 						panic(err)
 					}
+					fmt.Println("len(coins)", len(coins))
 					a.EncryptedCoins[tokenID.String()] = append(a.EncryptedCoins[tokenID.String()], coins...)
 				}
 				a.lock.Unlock()
@@ -151,7 +152,7 @@ func scanForNewCoins() {
 		////////////////
 		accountListLck.RUnlock()
 
-		time.Sleep(20 * time.Second)
+		time.Sleep(10 * time.Second)
 	}
 }
 

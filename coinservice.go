@@ -16,7 +16,6 @@ import (
 	"github.com/incognitochain/incognito-chain/multiview"
 	"github.com/incognitochain/incognito-chain/privacy"
 	"github.com/incognitochain/incognito-chain/privacy/coin"
-	"github.com/incognitochain/incognito-chain/privacy/key"
 	"github.com/incognitochain/incognito-chain/rpcserver/jsonresult"
 	"github.com/incognitochain/incognito-chain/transaction"
 	"github.com/incognitochain/incognito-chain/wallet"
@@ -93,7 +92,7 @@ func OnNewShardBlock(bc *blockchain.BlockChain, h common.Hash, height uint64) {
 	}
 }
 
-func GetCoinsByPaymentAddress(paymentAddr string, otaKey key.PrivateOTAKey, tokenID *common.Hash) ([]privacy.PlainCoin, error) {
+func GetCoinsByPaymentAddress(account *Account, tokenID *common.Hash) ([]privacy.PlainCoin, error) {
 	var outcoinList []privacy.PlainCoin
 	if tokenID == nil {
 		tokenID = &common.Hash{}
@@ -102,7 +101,7 @@ func GetCoinsByPaymentAddress(paymentAddr string, otaKey key.PrivateOTAKey, toke
 	var err error
 	switch NODEMODE {
 	case MODERPC:
-		coinList, e := rpcnode.API_ListOutputCoins(paymentAddr, tokenID.String())
+		coinList, e := rpcnode.API_ListOutputCoins(account.PAstr, tokenID.String())
 		if e != nil {
 			return nil, e
 		}
@@ -117,19 +116,19 @@ func GetCoinsByPaymentAddress(paymentAddr string, otaKey key.PrivateOTAKey, toke
 			}
 		}
 	case MODELIGHT, MODESIM:
-		wl, e := wallet.Base58CheckDeserialize(paymentAddr)
+		wl, e := wallet.Base58CheckDeserialize(account.PAstr)
 		if e != nil {
 			return nil, e
 		}
 		lastByte := wl.KeySet.PaymentAddress.Pk[len(wl.KeySet.PaymentAddress.Pk)-1]
 		shardIDSender := common.GetShardIDFromLastByte(lastByte)
 		wl.KeySet.OTAKey.SetPublicSpend(wl.KeySet.PaymentAddress.Pk)
-		wl.KeySet.OTAKey.SetOTASecretKey(otaKey)
-
+		wl.KeySet.OTAKey.SetOTASecretKey(account.OTAKey)
+		wl.KeySet.ReadonlyKey.Pk = wl.KeySet.PaymentAddress.Pk
+		wl.KeySet.ReadonlyKey.Rk = append(wl.KeySet.ReadonlyKey.Rk, account.Viewkey.Rk...)
 		coinList, _, _, _ := localnode.GetBlockchain().GetListDecryptedOutputCoinsVer2ByKeyset(&wl.KeySet, shardIDSender, tokenID, 0)
 		outcoinList = append(outcoinList, coinList...)
 	}
-	fmt.Println("len(outcoinList)", len(outcoinList))
 	return outcoinList, err
 }
 
@@ -165,26 +164,6 @@ func initCoinServiceRPCMode() {
 
 }
 
-//retrieve coins via coin pubkey on db
-func retrieveCoins(paymentAddress string, tokenID string, coinPubkey []string) ([]coin.PlainCoin, error) {
-	var result []coin.PlainCoin
-	switch NODEMODE {
-	case MODERPC:
-		coins, err := getCoins(paymentAddress, tokenID, coinPubkey)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, coins...)
-	case MODELIGHT, MODESIM:
-		coins, err := getCoinsViaBlockChainDB(paymentAddress, tokenID, coinPubkey)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, coins...)
-	}
-	return result, nil
-}
-
 //----------------------------------------
 //FUNCTIONS USED FOR CREATING TX
 //
@@ -202,7 +181,7 @@ func chooseCoinsForAccount(accountState *AccountState, paymentInfos []*privacy.P
 	accountState.lock.RLock()
 	defer accountState.lock.RUnlock()
 	coinsPubkey := append([]string{}, accountState.AvailableCoins[prvCoinID.String()]...)
-	plainCoins, err := retrieveCoins(accountState.Account.PAstr, prvCoinID.String(), coinsPubkey)
+	plainCoins, err := getCoins(accountState.Account.PAstr, prvCoinID.String(), coinsPubkey)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -350,19 +329,3 @@ func estimateFee(
 //
 //FUNCTIONS USED FOR CREATING TX
 //----------------------------------------
-
-func getCoinsViaBlockChainDB(paymentAddr string, tokenID string, coinsPubkey []string) ([]coin.PlainCoin, error) {
-	var result []coin.PlainCoin
-	for _, coinPubkey := range coinsPubkey {
-		wl, err := wallet.Base58CheckDeserialize(paymentAddr)
-		if err != nil {
-			return nil, err
-		}
-		lastByte := wl.KeySet.PaymentAddress.Pk[len(wl.KeySet.PaymentAddress.Pk)-1]
-		shardID := common.GetShardIDFromLastByte(lastByte)
-		tokenIDHash, err := common.Hash{}.NewHashFromStr(tokenID)
-		stDB := localnode.GetBlockchain().GetBestStateTransactionStateDB(shardID)
-		statedb.GetOutcoinsByPubkey(stDB, *tokenIDHash, []byte(coinPubkey), shardID)
-	}
-	return result, nil
-}
