@@ -18,10 +18,9 @@ var upgrader = websocket.Upgrader{
 }
 
 func startService(port string) {
-	http.HandleFunc("/getbalance", getBalanceHandler)
 	http.HandleFunc("/importaccount", importAccountHandler)
 	http.HandleFunc("/getcoinstodecrypt", getCoinsHandler)
-	http.HandleFunc("/getdaemonstate", getStateHandler)
+	http.HandleFunc("/daemonstate", getStateHandler)
 	http.HandleFunc("/createtx", createTxHandler)
 	http.HandleFunc("/cancelAllTxs", cancelAllTxsHandler)
 	http.HandleFunc("/getaccountlist", getAccountListHandler)
@@ -83,21 +82,6 @@ func getCoinsHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		panic(err)
 	}
-	return
-}
-
-func getBalanceHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	if r.Method != "GET" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	w.WriteHeader(200)
-	// _, err = w.Write(sysBytes)
-	// if err != nil {
-	// 	panic(err)
-	// }
 	return
 }
 
