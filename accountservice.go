@@ -1,13 +1,13 @@
 package main
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/incognitochain/incognito-chain/common"
-	"github.com/incognitochain/incognito-chain/privacy/coin"
 	"github.com/incognitochain/incognito-chain/privacy/key"
 	"github.com/incognitochain/incognito-chain/wallet"
 )
@@ -27,7 +27,7 @@ type AccountState struct {
 	isReady          bool
 
 	lock sync.RWMutex
-	//map[tokenID][]coinHash
+	//map[tokenID][]coinpubkey
 	PendingCoins   map[string][]string //wait for tx to confirm
 	AvailableCoins map[string][]string //avaliable to use
 	EncryptedCoins map[string][]string //encrypted, dont know whether been used
@@ -67,8 +67,15 @@ func importAccount(name string, paymentAddr string, viewKey string, OTAKey strin
 	lastByte := wl.KeySet.PaymentAddress.Pk[len(wl.KeySet.PaymentAddress.Pk)-1]
 	shardID := common.GetShardIDFromLastByte(lastByte)
 	acc.ShardID = shardID
+	viewKeyBytes, _ := hex.DecodeString(viewKey)
+	acc.Viewkey.Rk = viewKeyBytes
+	acc.Viewkey.Pk = wl.KeySet.PaymentAddress.Pk
+	OTAKeyBytes, _ := hex.DecodeString(OTAKey)
+	acc.OTAKey = OTAKeyBytes
+	acc.PAstr = paymentAddr
 	accState.Account = acc
 	accountList[name] = accState
+
 	if err := saveAccount(name, acc); err != nil {
 		return err
 	}
@@ -108,37 +115,43 @@ func scanForNewCoins() {
 			continue
 		}
 		accountListLck.RLock()
-		var newCoinList map[string][]coin.PlainCoin
-		newCoinList = make(map[string][]coin.PlainCoin)
+		////////////////////////////////////
+		// add more token
 		var wg sync.WaitGroup
 		var tokenID *common.Hash
 		if tokenID == nil {
 			tokenID = &common.Hash{}
 			tokenID.SetBytes(common.PRVCoinID[:])
 		}
+
 		for name, account := range accountList {
 			wg.Add(1)
 			go func(n string, a *AccountState) {
 				defer wg.Done()
-
+				a.lock.Lock()
+				fmt.Printf("scan coins for account %s\n", n)
 				a.isReady = false
-				coinList, err := GetCoinsByPaymentAddress(a.Account.PAstr, nil)
+				coinList, err := GetCoinsByPaymentAddress(a.Account.PAstr, a.Account.OTAKey, nil)
 				if err != nil {
 					fmt.Println(err)
-					return
 				}
-				for _, coin := range coinList {
-					if !checkCoinExist(a.Account.PAstr, tokenID.String(), coin.GetPublicKey().GetKey().String()) {
-						key := string(coinprefix(a.Account.PAstr, tokenID.String())) + coin.GetPublicKey().GetKey().String()
-						newCoinList[key] = append(newCoinList[key], coin)
+				if len(coinList) > 0 {
+					coins, err := checkCoinExistAndSave(a.Account.PAstr, tokenID.String(), coinList)
+					if err != nil {
+						panic(err)
 					}
+					a.EncryptedCoins[tokenID.String()] = append(a.EncryptedCoins[tokenID.String()], coins...)
 				}
+				a.lock.Unlock()
 				a.isReady = true
+				fmt.Printf("account %s is ready\n", n)
 			}(name, account)
 		}
 		wg.Wait()
+		////////////////
 		accountListLck.RUnlock()
-		time.Sleep(40 * time.Second)
+
+		time.Sleep(20 * time.Second)
 	}
 }
 

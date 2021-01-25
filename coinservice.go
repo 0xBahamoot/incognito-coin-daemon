@@ -16,6 +16,7 @@ import (
 	"github.com/incognitochain/incognito-chain/multiview"
 	"github.com/incognitochain/incognito-chain/privacy"
 	"github.com/incognitochain/incognito-chain/privacy/coin"
+	"github.com/incognitochain/incognito-chain/privacy/key"
 	"github.com/incognitochain/incognito-chain/rpcserver/jsonresult"
 	"github.com/incognitochain/incognito-chain/transaction"
 	"github.com/incognitochain/incognito-chain/wallet"
@@ -92,17 +93,18 @@ func OnNewShardBlock(bc *blockchain.BlockChain, h common.Hash, height uint64) {
 	}
 }
 
-func GetCoinsByPaymentAddress(paymentAddr string, tokenID *common.Hash) ([]privacy.PlainCoin, error) {
+func GetCoinsByPaymentAddress(paymentAddr string, otaKey key.PrivateOTAKey, tokenID *common.Hash) ([]privacy.PlainCoin, error) {
 	var outcoinList []privacy.PlainCoin
 	if tokenID == nil {
 		tokenID = &common.Hash{}
 		tokenID.SetBytes(common.PRVCoinID[:])
 	}
+	var err error
 	switch NODEMODE {
 	case MODERPC:
-		coinList, err := rpcnode.API_ListOutputCoins(paymentAddr, tokenID.String())
-		if err != nil {
-			return nil, err
+		coinList, e := rpcnode.API_ListOutputCoins(paymentAddr, tokenID.String())
+		if e != nil {
+			return nil, e
 		}
 		for _, out := range coinList.Outputs {
 			for _, c := range out {
@@ -115,20 +117,20 @@ func GetCoinsByPaymentAddress(paymentAddr string, tokenID *common.Hash) ([]priva
 			}
 		}
 	case MODELIGHT, MODESIM:
-		wl, err := wallet.Base58CheckDeserialize(paymentAddr)
-		if err != nil {
-			return nil, err
+		wl, e := wallet.Base58CheckDeserialize(paymentAddr)
+		if e != nil {
+			return nil, e
 		}
 		lastByte := wl.KeySet.PaymentAddress.Pk[len(wl.KeySet.PaymentAddress.Pk)-1]
 		shardIDSender := common.GetShardIDFromLastByte(lastByte)
+		wl.KeySet.OTAKey.SetPublicSpend(wl.KeySet.PaymentAddress.Pk)
+		wl.KeySet.OTAKey.SetOTASecretKey(otaKey)
 
-		outcoinList, err = localnode.GetBlockchain().TryGetAllOutputCoinsByKeyset(&wl.KeySet, shardIDSender, tokenID, false)
-		if err != nil {
-			return nil, err
-		}
+		coinList, _, _, _ := localnode.GetBlockchain().GetListDecryptedOutputCoinsVer2ByKeyset(&wl.KeySet, shardIDSender, tokenID, 0)
+		outcoinList = append(outcoinList, coinList...)
 	}
 	fmt.Println("len(outcoinList)", len(outcoinList))
-	return outcoinList, nil
+	return outcoinList, err
 }
 
 func initCoinService() {
@@ -157,20 +159,28 @@ func initCoinService() {
 	for i := 0; i < localnode.GetBlockchain().GetChainParams().ActiveShards; i++ {
 		localnode.OnNewBlockFromParticularHeight(i, int64(ShardProcessedState[byte(i)]), true, OnNewShardBlock)
 	}
-	go startService("9000")
 }
 
 func initCoinServiceRPCMode() {
+
 }
 
 //retrieve coins via coin pubkey on db
-func retrieveCoins(tokenID string, coinPubkey []string) ([]coin.PlainCoin, error) {
+func retrieveCoins(paymentAddress string, tokenID string, coinPubkey []string) ([]coin.PlainCoin, error) {
 	var result []coin.PlainCoin
 	switch NODEMODE {
 	case MODERPC:
-
+		coins, err := getCoins(paymentAddress, tokenID, coinPubkey)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, coins...)
 	case MODELIGHT, MODESIM:
-
+		coins, err := getCoinsViaBlockChainDB(paymentAddress, tokenID, coinPubkey)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, coins...)
 	}
 	return result, nil
 }
@@ -191,8 +201,8 @@ func chooseCoinsForAccount(accountState *AccountState, paymentInfos []*privacy.P
 	prvCoinID.SetBytes(common.PRVCoinID[:])
 	accountState.lock.RLock()
 	defer accountState.lock.RUnlock()
-	coinHashes := accountState.AvailableCoins[prvCoinID.String()]
-	plainCoins, err := retrieveCoins(prvCoinID.String(), coinHashes)
+	coinsPubkey := append([]string{}, accountState.AvailableCoins[prvCoinID.String()]...)
+	plainCoins, err := retrieveCoins(accountState.Account.PAstr, prvCoinID.String(), coinsPubkey)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -340,3 +350,19 @@ func estimateFee(
 //
 //FUNCTIONS USED FOR CREATING TX
 //----------------------------------------
+
+func getCoinsViaBlockChainDB(paymentAddr string, tokenID string, coinsPubkey []string) ([]coin.PlainCoin, error) {
+	var result []coin.PlainCoin
+	for _, coinPubkey := range coinsPubkey {
+		wl, err := wallet.Base58CheckDeserialize(paymentAddr)
+		if err != nil {
+			return nil, err
+		}
+		lastByte := wl.KeySet.PaymentAddress.Pk[len(wl.KeySet.PaymentAddress.Pk)-1]
+		shardID := common.GetShardIDFromLastByte(lastByte)
+		tokenIDHash, err := common.Hash{}.NewHashFromStr(tokenID)
+		stDB := localnode.GetBlockchain().GetBestStateTransactionStateDB(shardID)
+		statedb.GetOutcoinsByPubkey(stDB, *tokenIDHash, []byte(coinPubkey), shardID)
+	}
+	return result, nil
+}

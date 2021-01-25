@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/websocket"
+	"github.com/incognitochain/incognito-chain/privacy/coin"
 )
 
 var upgrader = websocket.Upgrader{
@@ -16,15 +17,16 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-func startService(port string) {
+func startAPIService(port string) {
 	http.HandleFunc("/getbalance", getBalanceHandler)
 	http.HandleFunc("/importaccount", importAccountHandler)
-	http.HandleFunc("/getcoinstodecrypt", getCoinsHandler)
+	http.HandleFunc("/getcoinstodecrypt", getCoinsToDecryptHandler)
 	http.HandleFunc("/getdaemonstate", getStateHandler)
 	http.HandleFunc("/createtx", createTxHandler)
 	http.HandleFunc("/cancelalltxs", cancelAllTxsHandler)
 	http.HandleFunc("/getaccountlist", getAccountListHandler)
 	http.HandleFunc("/removeaccount", removeAccountHandler)
+	http.HandleFunc("/gettokenlist", getTokenListHandler)
 	err := http.ListenAndServe("127.0.0.1:"+port, nil)
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)
@@ -54,25 +56,37 @@ func removeAccountHandler(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
-func getCoinsHandler(w http.ResponseWriter, r *http.Request) {
+func getCoinsToDecryptHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if r.Method != "GET" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
-	key := r.URL.Query().Get("key")
-	// wl, err := wallet.Base58CheckDeserialize(key)
-	// if err != nil {
-	// 	http.Error(w, "Unexpected error", http.StatusInternalServerError)
-	// 	return
-	// }
-	outcoins, err := GetCoinsByPaymentAddress(key, nil)
-	if err != nil {
-		http.Error(w, "Unexpected error", http.StatusInternalServerError)
+	accName := r.URL.Query().Get("account")
+	accountListLck.RLock()
+	defer accountListLck.RUnlock()
+	if _, ok := accountList[accName]; !ok {
+		http.Error(w, "This account name isn't exist", http.StatusBadRequest)
 		return
 	}
-	coinsBytes, err := json.Marshal(outcoins)
+	if !accountList[accName].isReady {
+		http.Error(w, "This account isn't ready yet", http.StatusBadRequest)
+		return
+	}
+	accState := accountList[accName]
+	accState.lock.RLock()
+	var encryptCoins map[string][]coin.PlainCoin
+	encryptCoins = make(map[string][]coin.PlainCoin)
+	for tokenID, coinsPubkey := range accState.EncryptedCoins {
+		coins, err := retrieveCoins(accState.Account.PAstr, tokenID, coinsPubkey)
+		if err != nil {
+			http.Error(w, "Unexpected error", http.StatusInternalServerError)
+			return
+		}
+		encryptCoins[tokenID] = append(encryptCoins[tokenID], coins...)
+	}
+
+	coinsBytes, err := json.Marshal(encryptCoins)
 	if err != nil {
 		http.Error(w, "Unexpected error", http.StatusInternalServerError)
 		return
@@ -120,6 +134,24 @@ func createTxHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func getAccountListHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	list, err := json.Marshal(getAccountList())
+	if err != nil {
+		http.Error(w, "Unexpected error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(200)
+	_, err = w.Write(list)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func getTokenListHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if r.Method != "GET" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
