@@ -21,13 +21,14 @@ var upgrader = websocket.Upgrader{
 func startAPIService(port string) {
 	http.HandleFunc("/importaccount", importAccountHandler)
 	http.HandleFunc("/getcoinstodecrypt", getCoinsToDecryptHandler)
-	http.HandleFunc("/updatekeyimages", updateKeyImage)
+	http.HandleFunc("/submitkeyimages", submitKeyImages)
 	http.HandleFunc("/daemonstate", getStateHandler)
 	http.HandleFunc("/createtx", createTxHandler)
 	http.HandleFunc("/cancelalltxs", cancelAllTxsHandler)
 	http.HandleFunc("/getaccountlist", getAccountListHandler)
 	http.HandleFunc("/removeaccount", removeAccountHandler)
 	http.HandleFunc("/gettokenlist", getTokenListHandler)
+	http.HandleFunc("/getbalance", getBalanceHandler)
 	err := http.ListenAndServe("127.0.0.1:"+port, nil)
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)
@@ -148,10 +149,40 @@ func getTokenListHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func updateKeyImage(w http.ResponseWriter, r *http.Request) {
+func submitKeyImages(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
+	}
+}
+
+func getBalanceHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	accName := r.URL.Query().Get("account")
+	accountListLck.RLock()
+	defer accountListLck.RUnlock()
+	accountState, ok := accountList[accName]
+	if !ok {
+		http.Error(w, "account name isn't exist", http.StatusBadRequest)
+		return
+	}
+	if !accountState.isReady {
+		http.Error(w, "account not ready", http.StatusBadRequest)
+		return
+	}
+	var rep API_account_balance_rep
+	rep.Address = accountState.Account.PAstr
+	rep.Balance = accountState.Balance
+
+	result, _ := json.Marshal(rep)
+	w.WriteHeader(200)
+	_, err := w.Write(result)
+	if err != nil {
+		panic(err)
 	}
 }
