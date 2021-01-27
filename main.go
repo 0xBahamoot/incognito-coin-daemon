@@ -47,7 +47,6 @@ func main() {
 	case MODERPC:
 		node := devframework.NewRPCClient(*rpcFlag)
 		rpcnode = node
-		initCoinServiceRPCMode()
 	case MODESIM:
 		node := devframework.NewStandaloneSimulation("simnode", devframework.Config{
 			ChainParam: devframework.NewChainParam(devframework.ID_TESTNET2).SetActiveShardNumber(8),

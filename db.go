@@ -78,13 +78,13 @@ func loadAccountsFromDB() (map[string]*Account, error) {
 	return result, err
 }
 
-func saveKeyImages(keyImages map[string][]byte, tokenID string, paymentAddrHash string) error {
+func saveKeyImages(keyImages map[string]string, tokenID string, paymentAddr string) error {
 	batch := keyimageDB.NewBatch()
-	prefix := coinprefix(paymentAddrHash, tokenID)
-	for commitmentHash, keyImage := range keyImages {
-		key := fmt.Sprintf("%s", commitmentHash)
+	prefix := coinprefix(paymentAddr, tokenID)
+	for coinPubkeyHash, keyImage := range keyImages {
+		key := fmt.Sprintf("%s", coinPubkeyHash)
 		keyBytes := append(prefix, []byte(key)...)
-		err := batch.Put(keyBytes, keyImage)
+		err := batch.Put(keyBytes, []byte(keyImage))
 		if err != nil {
 			return err
 		}
@@ -95,10 +95,10 @@ func saveKeyImages(keyImages map[string][]byte, tokenID string, paymentAddrHash 
 	return nil
 }
 
-func getAllKeyImages(paymentAddrHash string, tokenID string) (map[string][]byte, error) {
+func getAllKeyImages(paymentAddr string, tokenID string) (map[string][]byte, error) {
 	var result map[string][]byte
 	result = make(map[string][]byte)
-	prefix := coinprefix(paymentAddrHash, tokenID)
+	prefix := coinprefix(paymentAddr, tokenID)
 	iter := keyimageDB.NewIteratorWithPrefix(prefix)
 	for iter.Next() {
 		v := iter.Value()
@@ -109,10 +109,10 @@ func getAllKeyImages(paymentAddrHash string, tokenID string) (map[string][]byte,
 	return result, err
 }
 
-func getUnusedKeyImages(paymentAddrHash string, tokenID string) (map[string][]byte, error) {
+func getUnusedKeyImages(paymentAddr string, tokenID string) (map[string][]byte, error) {
 	var result map[string][]byte
 	result = make(map[string][]byte)
-	prefix := coinprefix(paymentAddrHash, tokenID)
+	prefix := coinprefix(paymentAddr, tokenID)
 	iter := keyimageDB.NewIteratorWithPrefix(prefix)
 	for iter.Next() {
 		v := iter.Value()
@@ -126,9 +126,9 @@ func getUnusedKeyImages(paymentAddrHash string, tokenID string) (map[string][]by
 	return result, err
 }
 
-func updateUsedKeyImages(paymentAddrHash string, tokenID string, coinsPubkey []string) error {
+func updateUsedKeyImages(paymentAddr string, tokenID string, coinsPubkey []string) error {
 	batch := keyimageDB.NewBatch()
-	prefix := coinprefix(paymentAddrHash, tokenID)
+	prefix := coinprefix(paymentAddr, tokenID)
 	for _, coinPK := range coinsPubkey {
 		key := fmt.Sprintf("%s", coinPK)
 		keyBytes := append(prefix, []byte(key)...)
@@ -196,12 +196,12 @@ func checkCoinExist(paymentAddr string, tokenID string, coinPubkey string) bool 
 	return result
 }
 
-// func getUnusedCoins(paymentAddrHash string,tokenID string) []
-//last 8 bytes of hash of paymentAddrHash&tokenID
-func coinprefix(paymentAddrHash string, tokenID string) []byte {
+// func getUnusedCoins(paymentAddr string,tokenID string) []
+//last 8 bytes of hash of paymentAddr&tokenID
+func coinprefix(paymentAddr string, tokenID string) []byte {
 	// var result []byte
 	prefix := []byte{}
-	prefix = append(prefix, []byte(paymentAddrHash)...)
+	prefix = append(prefix, []byte(paymentAddr)...)
 	prefix = append(prefix, []byte(tokenID)...)
 	result := sha3.Sum256(prefix)
 	return result[24:]

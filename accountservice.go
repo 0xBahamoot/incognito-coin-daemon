@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/incognitochain/incognito-chain/common"
+	"github.com/incognitochain/incognito-chain/common/base58"
 	"github.com/incognitochain/incognito-chain/privacy/key"
 	"github.com/incognitochain/incognito-chain/wallet"
 )
@@ -22,15 +23,18 @@ type Account struct {
 
 type AccountState struct {
 	Account          *Account
-	Balance          uint64
-	AvailableBalance uint64
+	Balance          map[string]uint64
+	AvailableBalance map[string]uint64
 	isReady          bool
 
-	lock sync.RWMutex
+	lock         sync.RWMutex
+	PendingCoins []string //wait for tx to confirm
 	//map[tokenID][]coinpubkey
-	PendingCoins   map[string][]string //wait for tx to confirm
-	AvailableCoins map[string][]string //avaliable to use
-	EncryptedCoins map[string][]string //encrypted, dont know whether been used
+	AvailableCoins   map[string][]string //avaliable to use
+	EncryptedCoins   map[string][]string //encrypted, dont know whether been used
+	AvlCoinsKeyimage map[string]string
+	CoinsValue       map[string]uint64
+	CTerminate       chan struct{}
 }
 
 var accountListLck sync.RWMutex
@@ -38,11 +42,14 @@ var accountList map[string]*AccountState
 var currentAccount string
 
 func (as *AccountState) init() {
-	as.Balance = 0
 	as.isReady = false
-	as.PendingCoins = make(map[string][]string)
+	as.Balance = make(map[string]uint64)
+	as.AvailableBalance = make(map[string]uint64)
 	as.AvailableCoins = make(map[string][]string)
 	as.EncryptedCoins = make(map[string][]string)
+	as.AvlCoinsKeyimage = make(map[string]string)
+	as.CoinsValue = make(map[string]uint64)
+	as.CTerminate = make(chan struct{})
 }
 
 func importAccount(name string, paymentAddr string, viewKey string, OTAKey string) error {
@@ -101,6 +108,7 @@ func initAccountService() error {
 		shardID := common.GetShardIDFromLastByte(lastByte)
 		acc.ShardID = shardID
 		accState.Account = acc
+		go accState.WatchBalance()
 		accountList[accName] = accState
 	}
 	accountListLck.Unlock()
@@ -142,6 +150,11 @@ func scanForNewCoins() {
 					}
 					fmt.Println("len(coins)", len(coins))
 					a.EncryptedCoins[tokenID.String()] = append(a.EncryptedCoins[tokenID.String()], coins...)
+					for _, coin := range coinList {
+						fmt.Println("coin.GetValue()", coin.GetValue())
+						key := fmt.Sprintf("%s", coin.GetPublicKey().ToBytesS())
+						a.CoinsValue[key] = coin.GetValue()
+					}
 				}
 				a.lock.Unlock()
 				a.isReady = true
@@ -167,17 +180,102 @@ func getAccountList() map[string]string {
 	return result
 }
 
-func getAllBalance() map[string]uint64 {
-	var result map[string]uint64
+func getAllBalance() map[string]map[string]uint64 {
 	accountListLck.RLock()
-	result = make(map[string]uint64)
+	result := make(map[string]map[string]uint64)
 	for name, account := range accountList {
-		result[name] = account.Balance
+		result[name] = make(map[string]uint64)
+		for token, balance := range account.Balance {
+			result[name][token] = balance
+		}
 	}
 	accountListLck.RUnlock()
 	return result
 }
 
-func getBalance(accountName string) uint64 {
-	return accountList[accountName].AvailableBalance
+func (acc *AccountState) GetBalance() map[string]uint64 {
+	result := make(map[string]uint64)
+	for token, balance := range acc.Balance {
+		result[token] = balance
+	}
+	return result
+}
+
+func (acc *AccountState) UpdateDecryptedCoin(coinList map[string][]string, keyimages map[string]string) error {
+	acc.lock.Lock()
+	acc.isReady = false
+	for token, coins := range coinList {
+		newCoinList := []string{}
+		for _, encoin := range acc.EncryptedCoins[token] {
+			stillEncrypted := true
+			for _, decoin := range coins {
+				if decoin == encoin {
+					stillEncrypted = false
+					break
+				}
+			}
+			if stillEncrypted {
+				newCoinList = append(newCoinList, encoin)
+			}
+		}
+		acc.EncryptedCoins[token] = newCoinList
+		acc.AvailableCoins[token] = append(acc.AvailableCoins[token], coins...)
+		acc.AvlCoinsKeyimage = keyimages
+	}
+	acc.lock.Unlock()
+	acc.isReady = true
+	return nil
+}
+
+func (acc *AccountState) WatchBalance() {
+	tc := time.NewTicker(defaultBalanceWatchInterval)
+	for {
+		select {
+		case <-tc.C:
+			if len(acc.AvailableCoins) == 0 {
+				continue
+			}
+			acc.lock.RLock()
+			keyimagesToCheck := make(map[string][]string)
+			for token, coins := range acc.AvailableCoins {
+				for _, coin := range coins {
+					keyimagesToCheck[token] = append(keyimagesToCheck[token], base58.Base58Check{}.Encode([]byte(acc.AvlCoinsKeyimage[coin]), 0))
+				}
+			}
+			acc.lock.RUnlock()
+			acc.isReady = false
+			for token, keyimage := range keyimagesToCheck {
+				result, err := rpcnode.API_HasSerialNumbers(acc.Account.PAstr, keyimage, token)
+				if err != nil {
+					fmt.Println(err)
+					continue
+				}
+				coinRemain := []string{}
+				coinUsed := []string{}
+				acc.lock.Lock()
+				for idx, used := range result {
+					if used {
+						coinUsed = append(coinUsed, acc.AvailableCoins[token][idx])
+					}
+					if !used {
+						coinRemain = append(coinRemain, acc.AvailableCoins[token][idx])
+					}
+				}
+				acc.AvailableCoins[token] = coinRemain
+				if err := updateUsedKeyImages(acc.Account.PAstr, token, coinUsed); err != nil {
+					panic(err)
+				}
+				for _, coin := range coinUsed {
+					delete(acc.AvlCoinsKeyimage, coin)
+				}
+				// acc.Balance[token] =
+				acc.lock.Unlock()
+			}
+
+			acc.isReady = true
+			continue
+		case <-acc.CTerminate:
+			return
+		}
+	}
 }

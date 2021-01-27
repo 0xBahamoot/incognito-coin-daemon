@@ -160,10 +160,6 @@ func initCoinService() {
 	}
 }
 
-func initCoinServiceRPCMode() {
-
-}
-
 //----------------------------------------
 //FUNCTIONS USED FOR CREATING TX
 //
