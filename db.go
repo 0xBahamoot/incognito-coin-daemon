@@ -116,7 +116,7 @@ func getUnusedKeyImages(paymentAddr string, tokenID string) (map[string][]byte, 
 	iter := keyimageDB.NewIteratorWithPrefix(prefix)
 	for iter.Next() {
 		v := iter.Value()
-		if bytes.Compare(v, usedkeyimage) == 0 {
+		if bytes.Equal(v, usedkeyimage) {
 			continue
 		}
 		result[string(iter.Key()[8:])] = v
@@ -171,9 +171,6 @@ func getCoins(paymentAddr string, tokenID string, coinsPubkey []string) ([]coin.
 	iter := coinDB.NewIteratorWithPrefix(prefix)
 	for iter.Next() {
 		v := iter.Value()
-		if bytes.Equal(v, usedkeyimage) {
-			continue
-		}
 		newCoin := new(coin.CoinV2)
 		err := newCoin.SetBytes(v)
 		if err != nil {

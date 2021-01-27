@@ -7,5 +7,5 @@ var (
 )
 
 const (
-	defaultBalanceWatchInterval = 15 * time.Second
+	defaultBalanceWatchInterval = 5 * time.Second
 )

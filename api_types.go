@@ -7,6 +7,8 @@ type API_create_tx_req struct {
 }
 
 type API_submit_keyimages_req struct {
+	Account   string
+	Keyimages map[string]map[string]string
 }
 
 type API_sync_status_rep struct {

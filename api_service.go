@@ -155,7 +155,32 @@ func submitKeyImages(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
+	var req API_submit_keyimages_req
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	accountListLck.RLock()
+	accountState, ok := accountList[req.Account]
+	accountListLck.RUnlock()
+	if !ok {
+		http.Error(w, "account name isn't exist", http.StatusBadRequest)
+		return
+	}
+	coinList := make(map[string][]string)
+	keyimages := make(map[string]string)
+	for token, coinsKm := range req.Keyimages {
+		for coinPK, km := range coinsKm {
+			coinList[token] = append(coinList[token], coinPK)
+			keyimages[coinPK] = km
+		}
+	}
+	err = accountState.UpdateDecryptedCoin(coinList, keyimages)
+	if err != nil {
+		panic(err)
+	}
+	w.WriteHeader(200)
 }
 
 func getBalanceHandler(w http.ResponseWriter, r *http.Request) {

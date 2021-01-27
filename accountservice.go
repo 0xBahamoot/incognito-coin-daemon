@@ -86,6 +86,8 @@ func importAccount(name string, paymentAddr string, viewKey string, OTAKey strin
 	if err := saveAccount(name, acc); err != nil {
 		return err
 	}
+
+	go accState.WatchBalance()
 	return nil
 }
 
@@ -165,7 +167,7 @@ func scanForNewCoins() {
 		////////////////
 		accountListLck.RUnlock()
 
-		time.Sleep(10 * time.Second)
+		time.Sleep(5 * time.Second)
 	}
 }
 
@@ -206,11 +208,13 @@ func (acc *AccountState) UpdateDecryptedCoin(coinList map[string][]string, keyim
 	acc.isReady = false
 	for token, coins := range coinList {
 		newCoinList := []string{}
+		tokenkms := make(map[string]string)
 		for _, encoin := range acc.EncryptedCoins[token] {
 			stillEncrypted := true
 			for _, decoin := range coins {
 				if decoin == encoin {
 					stillEncrypted = false
+					tokenkms[decoin] = keyimages[decoin]
 					break
 				}
 			}
@@ -220,8 +224,13 @@ func (acc *AccountState) UpdateDecryptedCoin(coinList map[string][]string, keyim
 		}
 		acc.EncryptedCoins[token] = newCoinList
 		acc.AvailableCoins[token] = append(acc.AvailableCoins[token], coins...)
-		acc.AvlCoinsKeyimage = keyimages
+
+		if err := saveKeyImages(tokenkms, token, acc.Account.PAstr); err != nil {
+			panic(err)
+		}
 	}
+	fmt.Println("len(acc.AvailableCoins[token])", len(acc.AvailableCoins[common.PRVCoinID.String()]))
+	acc.AvlCoinsKeyimage = keyimages
 	acc.lock.Unlock()
 	acc.isReady = true
 	return nil
@@ -239,13 +248,13 @@ func (acc *AccountState) WatchBalance() {
 			keyimagesToCheck := make(map[string][]string)
 			for token, coins := range acc.AvailableCoins {
 				for _, coin := range coins {
-					keyimagesToCheck[token] = append(keyimagesToCheck[token], base58.Base58Check{}.Encode([]byte(acc.AvlCoinsKeyimage[coin]), 0))
+					keyimagesToCheck[token] = append(keyimagesToCheck[token], base58.Base58Check{}.Encode([]byte(acc.AvlCoinsKeyimage[coin]), common.Base58Version))
 				}
 			}
 			acc.lock.RUnlock()
 			acc.isReady = false
-			for token, keyimage := range keyimagesToCheck {
-				result, err := rpcnode.API_HasSerialNumbers(acc.Account.PAstr, keyimage, token)
+			for token, keyimages := range keyimagesToCheck {
+				result, err := rpcnode.API_HasSerialNumbers(acc.Account.PAstr, keyimages, token)
 				if err != nil {
 					fmt.Println(err)
 					continue
@@ -256,6 +265,7 @@ func (acc *AccountState) WatchBalance() {
 				for idx, used := range result {
 					if used {
 						coinUsed = append(coinUsed, acc.AvailableCoins[token][idx])
+						panic("sdklfjlksdjlfklds")
 					}
 					if !used {
 						coinRemain = append(coinRemain, acc.AvailableCoins[token][idx])
