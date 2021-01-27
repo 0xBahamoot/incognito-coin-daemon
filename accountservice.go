@@ -267,8 +267,12 @@ func (acc *AccountState) WatchBalance() {
 				}
 				for _, coin := range coinUsed {
 					delete(acc.AvlCoinsKeyimage, coin)
+					delete(acc.CoinsValue, coin)
 				}
-				// acc.Balance[token] =
+				acc.Balance[token] = 0
+				for _, coin := range acc.AvailableCoins[token] {
+					acc.Balance[token] += acc.CoinsValue[coin]
+				}
 				acc.lock.Unlock()
 			}
 
