@@ -111,7 +111,7 @@ func main() {
 					panic(err)
 				}
 				cv2 := cV2.(*coin.CoinV2)
-				cv2Bytes := cv2.Bytes()
+				cv2Bytes := cv2.GetPublicKey().ToBytesS()
 				fmt.Println("hex.EncodeToString(cv2Bytes)", hex.EncodeToString(cv2Bytes))
 				acc01, _ := account.NewAccountFromPrivatekey("111111bgk2j6vZQvzq8tkonDLLXEvLkMwBMn5BoLXLpf631boJnPDGEQMGvA1pRfT71Crr7MM2ShvpkxCBWBL2icG22cXSpB8A2XKuezTJ")
 				coinDecrypted, err := cv2.Decrypt(acc01.Keyset)
