@@ -100,7 +100,7 @@ func main() {
 			panic(err)
 		}
 		// fmt.Println("len(l.Outputs)", len(l.Outputs))
-		testkms := make(map[string][]byte)
+		testkms := make(map[string]string)
 		for _, out := range l.Outputs {
 			fmt.Println("len(out) ", len(out))
 			for _, c := range out {
@@ -111,15 +111,15 @@ func main() {
 					panic(err)
 				}
 				cv2 := cV2.(*coin.CoinV2)
-				cv2Bytes := cv2.GetPublicKey().ToBytesS()
-				fmt.Println("hex.EncodeToString(cv2Bytes)", hex.EncodeToString(cv2Bytes))
 				acc01, _ := account.NewAccountFromPrivatekey("111111bgk2j6vZQvzq8tkonDLLXEvLkMwBMn5BoLXLpf631boJnPDGEQMGvA1pRfT71Crr7MM2ShvpkxCBWBL2icG22cXSpB8A2XKuezTJ")
 				coinDecrypted, err := cv2.Decrypt(acc01.Keyset)
 				if err != nil {
 					panic(err)
 				}
+				cv2Bytes := cv2.GetPublicKey().ToBytesS()
+				fmt.Println("hex.EncodeToString(cv2Bytes)", hex.EncodeToString(cv2Bytes))
 				fmt.Println("value/keyimage", cv2.GetValue(), hex.EncodeToString(coinDecrypted.GetKeyImage().ToBytesS()))
-				testkms[string(cv2.GetPublicKey().ToBytesS())] = coinDecrypted.GetKeyImage().ToBytesS()
+				testkms[hex.EncodeToString(cv2.GetPublicKey().ToBytesS())] = hex.EncodeToString(coinDecrypted.GetKeyImage().ToBytesS())
 			}
 		}
 		r, _ := getEncryptKeyImages("testacc")
@@ -156,7 +156,7 @@ func getEncryptKeyImages(accountName string) (map[string]map[string][]byte, erro
 	return result, nil
 }
 
-func submitKeyimages(tokenID string, account string, kms map[string][]byte) error {
+func submitKeyimages(tokenID string, account string, kms map[string]string) error {
 	var reqBody struct {
 		Account   string
 		Keyimages map[string]map[string]string
@@ -166,7 +166,7 @@ func submitKeyimages(tokenID string, account string, kms map[string][]byte) erro
 		if _, ok := reqKms[tokenID]; !ok {
 			reqKms[tokenID] = make(map[string]string)
 		}
-		reqKms[tokenID][coinpub] = string(km)
+		reqKms[tokenID][coinpub] = km
 	}
 	reqBody.Account = account
 	reqBody.Keyimages = reqKms

@@ -150,10 +150,8 @@ func scanForNewCoins() {
 					if err != nil {
 						panic(err)
 					}
-					fmt.Println("len(coins)", len(coins))
 					a.EncryptedCoins[tokenID.String()] = append(a.EncryptedCoins[tokenID.String()], coins...)
 					for _, coin := range coinList {
-						fmt.Println("coin.GetValue()", coin.GetValue())
 						key := fmt.Sprintf("%s", coin.GetPublicKey().ToBytesS())
 						a.CoinsValue[key] = coin.GetValue()
 					}
@@ -229,7 +227,6 @@ func (acc *AccountState) UpdateDecryptedCoin(coinList map[string][]string, keyim
 			panic(err)
 		}
 	}
-	fmt.Println("len(acc.AvailableCoins[token])", len(acc.AvailableCoins[common.PRVCoinID.String()]))
 	acc.AvlCoinsKeyimage = keyimages
 	acc.lock.Unlock()
 	acc.isReady = true
@@ -265,7 +262,6 @@ func (acc *AccountState) WatchBalance() {
 				for idx, used := range result {
 					if used {
 						coinUsed = append(coinUsed, acc.AvailableCoins[token][idx])
-						panic("sdklfjlksdjlfklds")
 					}
 					if !used {
 						coinRemain = append(coinRemain, acc.AvailableCoins[token][idx])
@@ -285,7 +281,6 @@ func (acc *AccountState) WatchBalance() {
 				}
 				acc.lock.Unlock()
 			}
-
 			acc.isReady = true
 			continue
 		case <-acc.CTerminate:

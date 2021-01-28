@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -172,8 +173,10 @@ func submitKeyImages(w http.ResponseWriter, r *http.Request) {
 	keyimages := make(map[string]string)
 	for token, coinsKm := range req.Keyimages {
 		for coinPK, km := range coinsKm {
-			coinList[token] = append(coinList[token], coinPK)
-			keyimages[coinPK] = km
+			coinPKBytes, _ := hex.DecodeString(coinPK)
+			kmBytes, _ := hex.DecodeString(km)
+			coinList[token] = append(coinList[token], string(coinPKBytes))
+			keyimages[string(coinPKBytes)] = string(kmBytes)
 		}
 	}
 	err = accountState.UpdateDecryptedCoin(coinList, keyimages)
