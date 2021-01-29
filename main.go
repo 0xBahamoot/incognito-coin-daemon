@@ -13,10 +13,6 @@ import (
 
 	devframework "github.com/0xkumi/incognito-dev-framework"
 	"github.com/0xkumi/incognito-dev-framework/account"
-	"github.com/incognitochain/incognito-chain/common"
-	"github.com/incognitochain/incognito-chain/common/base58"
-	"github.com/incognitochain/incognito-chain/privacy"
-	"github.com/incognitochain/incognito-chain/privacy/operation"
 )
 
 const (
@@ -68,8 +64,8 @@ func main() {
 		node.GenerateBlock().NextRound()
 
 		node.ShowBalance(node.GenesisAccount)
-		acc0, _ := account.NewAccountFromPrivatekey("111111bgk2j6vZQvzq8tkonDLLXEvLkMwBMn5BoLXLpf631boJnPDGEQMGvA1pRfT71Crr7MM2ShvpkxCBWBL2icG22cXSpB8A2XKuezTJ")
-		acc1, _ := account.NewAccountFromPrivatekey("112t8rnZCyrvapkNCFFBKEpesfDMK8oyfW9eewDDJkF9UkqUk1NTSoYFQJXaBhmBBdboLEaDmufLJTSZ71ZpaWeAH9k4Jny5DVCfvCJbZL7k")
+		acc0, _ := account.NewAccountFromPrivatekey("111111bgk2j6vZQvzq8tkonDLLXEvLkMwBMn5BoLXLpf631boJnPDGEQMGvA1pRfT71Crr7MM2ShvpkxCBWBL2icG22cXSpcKybKCQmaxa")
+		acc1, _ := account.GenerateAccountByShard(0, 3, "abc")
 
 		OTAKey := hex.EncodeToString(acc0.Keyset.OTAKey.GetOTASecretKey().ToBytesS())
 		viewKey := hex.EncodeToString(acc0.Keyset.ReadonlyKey.Rk)
@@ -96,51 +92,51 @@ func main() {
 			node.GenerateBlock().NextRound()
 		}
 
-		time.Sleep(20 * time.Second)
-		keyimages, err := getEncryptKeyImages("testacc")
-		if err != nil {
-			panic(err)
-		}
+		// time.Sleep(20 * time.Second)
+		// keyimages, err := getEncryptKeyImages("testacc")
+		// if err != nil {
+		// 	panic(err)
+		// }
 
-		testkms := make(map[string]string)
-		for _, coinList := range keyimages {
-			for coinPk, km := range coinList {
-				h, _ := hex.DecodeString(km)
-				pk, _ := hex.DecodeString(coinPk)
-				Hp := operation.HashToPoint(pk)
-				K := new(operation.Scalar).FromBytesS(acc0.Keyset.PrivateKey)
-				s := operation.Scalar{}
-				H := s.FromBytesS(h)
-				k := new(operation.Scalar).Add(H, K)
-				img := new(operation.Point).ScalarMult(Hp, k)
-				testkms[coinPk] = hex.EncodeToString(img.ToBytesS())
-			}
-		}
+		// testkms := make(map[string]string)
+		// for _, coinList := range keyimages {
+		// 	for coinPk, km := range coinList {
+		// 		h, _ := hex.DecodeString(km)
+		// 		pk, _ := hex.DecodeString(coinPk)
+		// 		Hp := operation.HashToPoint(pk)
+		// 		K := new(operation.Scalar).FromBytesS(acc0.Keyset.PrivateKey)
+		// 		s := operation.Scalar{}
+		// 		H := s.FromBytesS(h)
+		// 		k := new(operation.Scalar).Add(H, K)
+		// 		img := new(operation.Point).ScalarMult(Hp, k)
+		// 		testkms[coinPk] = hex.EncodeToString(img.ToBytesS())
+		// 	}
+		// }
 
-		e := submitKeyimages(common.PRVCoinID.String(), "testacc", testkms)
-		if e != nil {
-			panic(e)
-		}
-		fmt.Println("e", e)
-		node.Pause()
-		time.Sleep(5 * time.Second)
-		var paymentInfos []*privacy.PaymentInfo
-		paymentInfos = append(paymentInfos, &privacy.PaymentInfo{
-			PaymentAddress: acc1.Keyset.PaymentAddress,
-			Amount:         4321,
-		})
-		tx, err := CreateTxPRV(accountList["testacc"], common.PRVCoinID.String(), paymentInfos, nil, acc0.Keyset)
-		if err != nil {
-			panic(err)
-		}
-		txBytes, err := json.Marshal(tx)
-		txString := base58.Base58Check{}.Encode(txBytes, common.Base58Version)
-		fmt.Println("tx", txString)
-		node.InjectTx(txString)
-		for i := 0; i < 10; i++ {
-			node.GenerateBlock().NextRound()
-		}
-		node.ShowBalance(acc0)
+		// e := submitKeyimages(common.PRVCoinID.String(), "testacc", testkms)
+		// if e != nil {
+		// 	panic(e)
+		// }
+		// fmt.Println("e", e)
+		// node.Pause()
+		// time.Sleep(5 * time.Second)
+		// var paymentInfos []*privacy.PaymentInfo
+		// paymentInfos = append(paymentInfos, &privacy.PaymentInfo{
+		// 	PaymentAddress: acc1.Keyset.PaymentAddress,
+		// 	Amount:         4321,
+		// })
+		// tx, err := CreateTxPRV(accountList["testacc"], common.PRVCoinID.String(), paymentInfos, nil, acc0.Keyset)
+		// if err != nil {
+		// 	panic(err)
+		// }
+		// txBytes, err := json.Marshal(tx)
+		// txString := base58.Base58Check{}.Encode(txBytes, common.Base58Version)
+		// fmt.Println("tx", txString)
+		// node.InjectTx(txString)
+		// for i := 0; i < 10; i++ {
+		// 	node.GenerateBlock().NextRound()
+		// }
+		// node.ShowBalance(acc0)
 		node.Pause()
 		return
 	default:
