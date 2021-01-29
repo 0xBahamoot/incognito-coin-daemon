@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -75,23 +74,25 @@ func getCoinsToDecryptHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	accState := accountList[accName]
 	accState.lock.RLock()
-	defer accState.lock.RUnlock()
-	encryptCoins := make(map[string]map[string][]byte)
+	encryptCoins := make(map[string]map[string]string)
 	for tokenID, coinsPubkey := range accState.EncryptedCoins {
-		fmt.Println("len(coinsPubkey)", len(coinsPubkey))
-		coins, err := getCoins(accState.Account.PAstr, tokenID, coinsPubkey)
-		if err != nil {
-			http.Error(w, "Unexpected error", http.StatusInternalServerError)
-			return
-		}
-		otakey := &key.OTAKey{}
-		otakey.SetOTASecretKey(accState.Account.OTAKey)
-		encryptCoins[tokenID], err = ExtractCoinEncryptKeyImgData(coins, otakey)
-		if err != nil {
-			panic(err)
+		if len(coinsPubkey) > 0 {
+			fmt.Println("len(coinsPubkey)", len(coinsPubkey))
+			coins, err := getCoinsByCoinPubkey(accState.Account.PAstr, tokenID, coinsPubkey)
+			if err != nil {
+				accState.lock.RUnlock()
+				http.Error(w, "Unexpected error", http.StatusInternalServerError)
+				return
+			}
+			otakey := &key.OTAKey{}
+			otakey.SetOTASecretKey(accState.Account.OTAKey)
+			encryptCoins[tokenID], err = ExtractCoinEncryptKeyImgData(coins, otakey)
+			if err != nil {
+				panic(err)
+			}
 		}
 	}
-
+	accState.lock.RUnlock()
 	coinsBytes, err := json.Marshal(encryptCoins)
 	if err != nil {
 		http.Error(w, "Unexpected error", http.StatusInternalServerError)
@@ -173,10 +174,8 @@ func submitKeyImages(w http.ResponseWriter, r *http.Request) {
 	keyimages := make(map[string]string)
 	for token, coinsKm := range req.Keyimages {
 		for coinPK, km := range coinsKm {
-			coinPKBytes, _ := hex.DecodeString(coinPK)
-			kmBytes, _ := hex.DecodeString(km)
-			coinList[token] = append(coinList[token], string(coinPKBytes))
-			keyimages[string(coinPKBytes)] = string(kmBytes)
+			coinList[token] = append(coinList[token], coinPK)
+			keyimages[coinPK] = km
 		}
 	}
 	err = accountState.UpdateDecryptedCoin(coinList, keyimages)

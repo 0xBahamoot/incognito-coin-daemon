@@ -94,8 +94,8 @@ func NewCoinV2ArrayFromPaymentInfoArray(paymentInfo []*privacy.PaymentInfo, toke
 	return outputCoins, nil
 }
 
-func ExtractCoinEncryptKeyImgData(coins []coin.PlainCoin, OTAKey *key.OTAKey) (map[string][]byte, error) {
-	result := make(map[string][]byte)
+func ExtractCoinEncryptKeyImgData(coins []coin.PlainCoin, OTAKey *key.OTAKey) (map[string]string, error) {
+	result := make(map[string]string)
 	for _, c := range coins {
 		if c.GetVersion() != 2 {
 			panic("oops")
@@ -109,9 +109,7 @@ func ExtractCoinEncryptKeyImgData(coins []coin.PlainCoin, OTAKey *key.OTAKey) (m
 		H := operation.HashToScalar(append(rK.ToBytesS(), common.Uint32ToBytes(index)...)) // Hash(r_ota*K, index)
 		HBytes := H.ToBytesS()
 		PubkeyBytes := c.GetPublicKey().ToBytesS()
-		data := []byte{}
-		data = append(data, HBytes...)
-		result[hex.EncodeToString(PubkeyBytes)] = data
+		result[hex.EncodeToString(PubkeyBytes)] = hex.EncodeToString(HBytes)
 	}
 	return result, nil
 }

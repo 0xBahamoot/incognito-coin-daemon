@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 
@@ -82,7 +83,7 @@ func saveKeyImages(keyImages map[string]string, tokenID string, paymentAddr stri
 	batch := keyimageDB.NewBatch()
 	prefix := coinprefix(paymentAddr, tokenID)
 	for coinPubkeyHash, keyImage := range keyImages {
-		key := fmt.Sprintf("%s", coinPubkeyHash)
+		key := coinPubkeyHash
 		keyBytes := append(prefix, []byte(key)...)
 		err := batch.Put(keyBytes, []byte(keyImage))
 		if err != nil {
@@ -130,7 +131,7 @@ func updateUsedKeyImages(paymentAddr string, tokenID string, coinsPubkey []strin
 	batch := keyimageDB.NewBatch()
 	prefix := coinprefix(paymentAddr, tokenID)
 	for _, coinPK := range coinsPubkey {
-		key := fmt.Sprintf("%s", coinPK)
+		key := coinPK
 		keyBytes := append(prefix, []byte(key)...)
 		if err := batch.Put(keyBytes, usedkeyimage); err != nil {
 			return err
@@ -145,7 +146,7 @@ func saveCoins(paymentAddr string, tokenID string, coins []coin.PlainCoin) error
 	batch := coinDB.NewBatch()
 	prefix := coinprefix(paymentAddr, tokenID)
 	for _, coin := range coins {
-		key := fmt.Sprintf("%s", coin.GetPublicKey().ToBytesS())
+		key := hex.EncodeToString(coin.GetPublicKey().ToBytesS())
 		keyBytes := append(prefix, []byte(key)...)
 		var value []byte
 		value = coin.Bytes()
@@ -165,22 +166,24 @@ func saveCoins(paymentAddr string, tokenID string, coins []coin.PlainCoin) error
 }
 
 //this function is used when RPCMODE
-func getCoins(paymentAddr string, tokenID string, coinsPubkey []string) ([]coin.PlainCoin, error) {
+func getCoinsByCoinPubkey(paymentAddr string, tokenID string, coinsPubkey []string) ([]coin.PlainCoin, error) {
 	var result []coin.PlainCoin
-	prefix := coinprefix(paymentAddr, tokenID)
-	iter := coinDB.NewIteratorWithPrefix(prefix)
-	for iter.Next() {
-		v := iter.Value()
+	for _, coinPK := range coinsPubkey {
+		prefix := coinprefix(paymentAddr, tokenID)
+		keyBytes := append(prefix, []byte(coinPK)...)
+		coinBytes, err := coinDB.Get(keyBytes)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
 		newCoin := new(coin.CoinV2)
-		err := newCoin.SetBytes(v)
+		err = newCoin.SetBytes(coinBytes)
 		if err != nil {
 			panic(err)
 		}
 		result = append(result, newCoin)
 	}
-	iter.Release()
-	err := iter.Error()
-	return result, err
+	return result, nil
 }
 
 func checkCoinExist(paymentAddr string, tokenID string, coinPubkey string) bool {
@@ -209,7 +212,7 @@ func checkCoinExistAndSave(paymentAddr string, tokenID string, coins []coin.Plai
 	batch := coinDB.NewBatch()
 	prefix := coinprefix(paymentAddr, tokenID)
 	for _, coin := range coins {
-		key := fmt.Sprintf("%s", coin.GetPublicKey().ToBytesS())
+		key := hex.EncodeToString(coin.GetPublicKey().ToBytesS())
 		keyBytes := append(prefix, []byte(key)...)
 		if !checkCoinExist(paymentAddr, tokenID, key) {
 			var value []byte

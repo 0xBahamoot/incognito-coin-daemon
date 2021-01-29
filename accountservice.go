@@ -152,7 +152,7 @@ func scanForNewCoins() {
 					}
 					a.EncryptedCoins[tokenID.String()] = append(a.EncryptedCoins[tokenID.String()], coins...)
 					for _, coin := range coinList {
-						key := fmt.Sprintf("%s", coin.GetPublicKey().ToBytesS())
+						key := hex.EncodeToString(coin.GetPublicKey().ToBytesS())
 						a.CoinsValue[key] = coin.GetValue()
 					}
 				}
@@ -213,6 +213,7 @@ func (acc *AccountState) UpdateDecryptedCoin(coinList map[string][]string, keyim
 				if decoin == encoin {
 					stillEncrypted = false
 					tokenkms[decoin] = keyimages[decoin]
+					acc.AvailableCoins[token] = append(acc.AvailableCoins[token], decoin)
 					break
 				}
 			}
@@ -221,13 +222,14 @@ func (acc *AccountState) UpdateDecryptedCoin(coinList map[string][]string, keyim
 			}
 		}
 		acc.EncryptedCoins[token] = newCoinList
-		acc.AvailableCoins[token] = append(acc.AvailableCoins[token], coins...)
-
 		if err := saveKeyImages(tokenkms, token, acc.Account.PAstr); err != nil {
 			panic(err)
 		}
 	}
-	acc.AvlCoinsKeyimage = keyimages
+	for k, v := range keyimages {
+		acc.AvlCoinsKeyimage[k] = v
+	}
+
 	acc.lock.Unlock()
 	acc.isReady = true
 	return nil
@@ -245,9 +247,14 @@ func (acc *AccountState) WatchBalance() {
 			keyimagesToCheck := make(map[string][]string)
 			for token, coins := range acc.AvailableCoins {
 				for _, coin := range coins {
-					keyimagesToCheck[token] = append(keyimagesToCheck[token], base58.Base58Check{}.Encode([]byte(acc.AvlCoinsKeyimage[coin]), common.Base58Version))
+					kmb, err := hex.DecodeString(acc.AvlCoinsKeyimage[coin])
+					if err != nil {
+						panic(err)
+					}
+					keyimagesToCheck[token] = append(keyimagesToCheck[token], base58.Base58Check{}.Encode(kmb, common.Base58Version))
 				}
 			}
+
 			acc.lock.RUnlock()
 			acc.isReady = false
 			for token, keyimages := range keyimagesToCheck {
@@ -262,6 +269,7 @@ func (acc *AccountState) WatchBalance() {
 				for idx, used := range result {
 					if used {
 						coinUsed = append(coinUsed, acc.AvailableCoins[token][idx])
+						// panic(0)
 					}
 					if !used {
 						coinRemain = append(coinRemain, acc.AvailableCoins[token][idx])
@@ -275,9 +283,14 @@ func (acc *AccountState) WatchBalance() {
 					delete(acc.AvlCoinsKeyimage, coin)
 					delete(acc.CoinsValue, coin)
 				}
-				acc.Balance[token] = 0
+				newBalance := uint64(0)
 				for _, coin := range acc.AvailableCoins[token] {
-					acc.Balance[token] += acc.CoinsValue[coin]
+					newBalance += acc.CoinsValue[coin]
+					fmt.Println("acc.CoinsValue", acc.CoinsValue[coin])
+				}
+				if acc.Balance[token] != newBalance {
+					acc.Balance[token] = newBalance
+					fmt.Println("newBalance", newBalance, len((acc.CoinsValue)))
 				}
 				acc.lock.Unlock()
 			}

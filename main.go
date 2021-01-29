@@ -14,8 +14,9 @@ import (
 	devframework "github.com/0xkumi/incognito-dev-framework"
 	"github.com/0xkumi/incognito-dev-framework/account"
 	"github.com/incognitochain/incognito-chain/common"
-	"github.com/incognitochain/incognito-chain/privacy/coin"
-	"github.com/incognitochain/incognito-chain/rpcserver/jsonresult"
+	"github.com/incognitochain/incognito-chain/common/base58"
+	"github.com/incognitochain/incognito-chain/privacy"
+	"github.com/incognitochain/incognito-chain/privacy/operation"
 )
 
 const (
@@ -63,6 +64,7 @@ func main() {
 		})
 		localnode = node
 		rpcnode = node.GetRPC()
+		// initCoinService()
 		node.GenerateBlock().NextRound()
 
 		node.ShowBalance(node.GenesisAccount)
@@ -95,42 +97,50 @@ func main() {
 		}
 
 		time.Sleep(20 * time.Second)
-		l, err := node.RPC.API_ListOutputCoins(acc0.PrivateKey, common.PRVCoinID.String())
+		keyimages, err := getEncryptKeyImages("testacc")
 		if err != nil {
 			panic(err)
 		}
-		// fmt.Println("len(l.Outputs)", len(l.Outputs))
+
 		testkms := make(map[string]string)
-		for _, out := range l.Outputs {
-			fmt.Println("len(out) ", len(out))
-			for _, c := range out {
-				// cBytes, _ := json.Marshal(c)
-				// fmt.Println(string(cBytes))
-				cV2, err := jsonresult.NewCoinFromJsonOutCoin(c)
-				if err != nil {
-					panic(err)
-				}
-				cv2 := cV2.(*coin.CoinV2)
-				acc01, _ := account.NewAccountFromPrivatekey("111111bgk2j6vZQvzq8tkonDLLXEvLkMwBMn5BoLXLpf631boJnPDGEQMGvA1pRfT71Crr7MM2ShvpkxCBWBL2icG22cXSpB8A2XKuezTJ")
-				coinDecrypted, err := cv2.Decrypt(acc01.Keyset)
-				if err != nil {
-					panic(err)
-				}
-				cv2Bytes := cv2.GetPublicKey().ToBytesS()
-				fmt.Println("hex.EncodeToString(cv2Bytes)", hex.EncodeToString(cv2Bytes))
-				fmt.Println("value/keyimage", cv2.GetValue(), hex.EncodeToString(coinDecrypted.GetKeyImage().ToBytesS()))
-				testkms[hex.EncodeToString(cv2.GetPublicKey().ToBytesS())] = hex.EncodeToString(coinDecrypted.GetKeyImage().ToBytesS())
+		for _, coinList := range keyimages {
+			for coinPk, km := range coinList {
+				h, _ := hex.DecodeString(km)
+				pk, _ := hex.DecodeString(coinPk)
+				Hp := operation.HashToPoint(pk)
+				K := new(operation.Scalar).FromBytesS(acc0.Keyset.PrivateKey)
+				s := operation.Scalar{}
+				H := s.FromBytesS(h)
+				k := new(operation.Scalar).Add(H, K)
+				img := new(operation.Point).ScalarMult(Hp, k)
+				testkms[coinPk] = hex.EncodeToString(img.ToBytesS())
 			}
 		}
-		r, _ := getEncryptKeyImages("testacc")
-		fmt.Println("r", r)
 
 		e := submitKeyimages(common.PRVCoinID.String(), "testacc", testkms)
-		if err != nil {
+		if e != nil {
 			panic(e)
 		}
 		fmt.Println("e", e)
-		// node.ApplyChain(0).GenerateBlock().NextRound()
+		node.Pause()
+		time.Sleep(5 * time.Second)
+		var paymentInfos []*privacy.PaymentInfo
+		paymentInfos = append(paymentInfos, &privacy.PaymentInfo{
+			PaymentAddress: acc1.Keyset.PaymentAddress,
+			Amount:         4321,
+		})
+		tx, err := CreateTxPRV(accountList["testacc"], common.PRVCoinID.String(), paymentInfos, nil, acc0.Keyset)
+		if err != nil {
+			panic(err)
+		}
+		txBytes, err := json.Marshal(tx)
+		txString := base58.Base58Check{}.Encode(txBytes, common.Base58Version)
+		fmt.Println("tx", txString)
+		node.InjectTx(txString)
+		for i := 0; i < 10; i++ {
+			node.GenerateBlock().NextRound()
+		}
+		node.ShowBalance(acc0)
 		node.Pause()
 		return
 	default:
@@ -139,8 +149,8 @@ func main() {
 	select {}
 }
 
-func getEncryptKeyImages(accountName string) (map[string]map[string][]byte, error) {
-	result := make(map[string]map[string][]byte)
+func getEncryptKeyImages(accountName string) (map[string]map[string]string, error) {
+	result := make(map[string]map[string]string)
 	resp, err := http.Get("http://127.0.0.1:9000/getcoinstodecrypt?account=" + accountName)
 	if err != nil {
 		log.Fatalln(err)
@@ -176,7 +186,6 @@ func submitKeyimages(tokenID string, account string, kms map[string]string) erro
 	if err != nil {
 		panic(err)
 	}
-	req.Header.Set("X-Custom-Header", "myvalue")
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{}

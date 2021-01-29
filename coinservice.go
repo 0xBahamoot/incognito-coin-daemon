@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/incognitochain/incognito-chain/multiview"
 	"github.com/incognitochain/incognito-chain/privacy"
 	"github.com/incognitochain/incognito-chain/privacy/coin"
+	"github.com/incognitochain/incognito-chain/privacy/operation"
 	"github.com/incognitochain/incognito-chain/rpcserver/jsonresult"
 	"github.com/incognitochain/incognito-chain/transaction"
 	"github.com/incognitochain/incognito-chain/wallet"
@@ -108,6 +110,7 @@ func GetCoinsByPaymentAddress(account *Account, tokenID *common.Hash) ([]privacy
 		for _, out := range coinList.Outputs {
 			for _, c := range out {
 				cV2, err := jsonresult.NewCoinFromJsonOutCoin(c)
+				// _ = idx
 				if err != nil {
 					panic(err)
 				}
@@ -177,7 +180,7 @@ func chooseCoinsForAccount(accountState *AccountState, paymentInfos []*privacy.P
 	accountState.lock.RLock()
 	defer accountState.lock.RUnlock()
 	coinsPubkey := append([]string{}, accountState.AvailableCoins[prvCoinID.String()]...)
-	plainCoins, err := getCoins(accountState.Account.PAstr, prvCoinID.String(), coinsPubkey)
+	plainCoins, err := getCoinsByCoinPubkey(accountState.Account.PAstr, prvCoinID.String(), coinsPubkey)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -199,12 +202,20 @@ func chooseCoinsForAccount(accountState *AccountState, paymentInfos []*privacy.P
 			Amount:         overBalanceAmount,
 		})
 	}
-	// check real fee(nano PRV) per tx
-	beaconState, err := rpcnode.API_GetBeaconBestState()
-	if err != nil {
-		return nil, 0, err
+	for _, coin := range candidatePlainCoins {
+		kmHex := accountState.AvlCoinsKeyimage[hex.EncodeToString(coin.GetPublicKey().ToBytesS())]
+		kmBytes, _ := hex.DecodeString(kmHex)
+		kmPoint := operation.Point{}
+		kmPoint.FromBytesS(kmBytes)
+		coin.SetKeyImage(&kmPoint)
 	}
-	beaconHeight := beaconState.BeaconHeight
+	// check real fee(nano PRV) per tx
+
+	// beaconState, err := rpcnode.API_GetBeaconBestState()
+	// if err != nil {
+	// 	return nil, 0, err
+	// }
+	beaconHeight := localnode.GetBlockchain().GetBeaconBestState().BeaconHeight
 	// ver, err := transaction.GetTxVersionFromCoins(candidatePlainCoins)
 	realFee, _, _, err := estimateFee(accountState.Account.PAstr, false, candidatePlainCoins,
 		paymentInfos, shardIDSender, true,
@@ -296,6 +307,7 @@ func estimateFee(
 	metadata metadata.Metadata,
 	privacyCustomTokenParams *transaction.TokenParam,
 	beaconHeight int64) (uint64, uint64, uint64, error) {
+	return 8, 8, 8, nil
 	// check real fee(nano PRV) per tx
 	var realFee uint64
 	estimateFeeCoinPerKb := uint64(0)
