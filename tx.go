@@ -11,6 +11,7 @@ import (
 	"github.com/incognitochain/incognito-chain/incognitokey"
 	"github.com/incognitochain/incognito-chain/metadata"
 	"github.com/incognitochain/incognito-chain/privacy"
+	"github.com/incognitochain/incognito-chain/privacy/operation"
 	"github.com/incognitochain/incognito-chain/privacy/privacy_v2/mlsag"
 	"github.com/incognitochain/incognito-chain/rpcserver/bean"
 	"github.com/incognitochain/incognito-chain/transaction/tx_generic"
@@ -26,7 +27,7 @@ type onGoingTxCreationStruct struct {
 
 var onGoingTxCreation onGoingTxCreationStruct
 
-func CreateTxPRV(accountState *AccountState, tokenID string, paymentInfo []*privacy.PaymentInfo, metadataParam metadata.Metadata, debugKeyset *incognitokey.KeySet) (metadata.Transaction, error) {
+func CreateTxPRV(txCID int, accountState *AccountState, tokenID string, paymentInfo []*privacy.PaymentInfo, metadataParam metadata.Metadata, debugKeyset *incognitokey.KeySet) (metadata.Transaction, error) {
 	//create tx param
 	rawTxParam := bean.CreateRawTxParam{
 		SenderKeySet:         debugKeyset,
@@ -42,14 +43,14 @@ func CreateTxPRV(accountState *AccountState, tokenID string, paymentInfo []*priv
 	} else {
 		stateDB = TransactionStateDB[accountState.Account.ShardID]
 	}
-	tx, err := buildRawTransaction(accountState, &rawTxParam, metadataParam, stateDB)
+	tx, err := buildRawTransaction(txCID, accountState, &rawTxParam, metadataParam, stateDB)
 	if err != nil {
 		return nil, err
 	}
 	return tx, nil
 }
 
-func CreateTxToken(accountState *AccountState, tokenID string, paymentInfos []*privacy.PaymentInfo, metadataParam metadata.Metadata, debugKeyset *incognitokey.KeySet) (metadata.Transaction, error) {
+func CreateTxToken(txCID int, accountState *AccountState, tokenID string, paymentInfos []*privacy.PaymentInfo, metadataParam metadata.Metadata, debugKeyset *incognitokey.KeySet) (metadata.Transaction, error) {
 	//create tx param
 	rawTxParam := bean.CreateRawTxParam{
 		SenderKeySet:         debugKeyset,
@@ -59,14 +60,14 @@ func CreateTxToken(accountState *AccountState, tokenID string, paymentInfos []*p
 		Info:                 nil,
 		EstimateFeeCoinPerKb: 0,
 	}
-	tx, err := buildRawTransaction(accountState, &rawTxParam, metadataParam, TransactionStateDB[accountState.Account.ShardID])
+	tx, err := buildRawTransaction(txCID, accountState, &rawTxParam, metadataParam, TransactionStateDB[accountState.Account.ShardID])
 	if err != nil {
 		return nil, err
 	}
 	return tx, nil
 }
 
-func buildRawTransaction(accountState *AccountState, params *bean.CreateRawTxParam, meta metadata.Metadata, stateDB *statedb.StateDB) (metadata.Transaction, error) {
+func buildRawTransaction(txCID int, accountState *AccountState, params *bean.CreateRawTxParam, meta metadata.Metadata, stateDB *statedb.StateDB) (metadata.Transaction, error) {
 	// get output coins to spend and real fee
 	inputCoins, realFee, err := chooseCoinsForAccount(accountState,
 		params.PaymentInfos, meta, nil)
@@ -95,21 +96,23 @@ func buildRawTransaction(accountState *AccountState, params *bean.CreateRawTxPar
 		return nil, err
 	}
 
-	// check this IsNonPrivacyNonInput (request sign from device) //TODO
+	// check this IsNonPrivacyNonInput
 	if len(initializingParams.InputCoins) == 0 && initializingParams.Fee == 0 && !initializingParams.HasPrivacy {
-		//Logger.Log.Debugf("len(inputCoins) == 0 && fee == 0 && !hasPrivacy\n")
-		// tx.sigPrivKey = *params.SenderSK
-		//schnoor sig
-		// if tx.Sig, tx.SigPubKey, err = SignNoPrivacy(params.SenderSK, tx.Hash()[:]); err != nil {
-		// 	// utils.Logger.Log.Error(errors.New(fmt.Sprintf("Cannot signOnMessage tx %v\n", err)))
-		// 	return nil, err
-		// }
-		// return &tx, nil
+		if initializingParams.SenderSK != nil {
+			if tx.Sig, tx.SigPubKey, err = signSchnorrLocal(initializingParams.SenderSK, tx.Hash()[:]); err != nil {
+				return nil, err
+			}
+		} else {
+			if tx.Sig, tx.SigPubKey, err = signSchnorrLedger(txCID, tx.Hash()[:]); err != nil {
+				return nil, err
+			}
+		}
+		return &tx, nil
 	}
 
 	// proveTxToken
 	// coins conceal here too
-	if err := proveTxPRV(&tx, initializingParams); err != nil {
+	if err := proveTxPRV(txCID, &tx, initializingParams); err != nil {
 		return nil, err
 	}
 	//validate tx param ValidateTxParams
@@ -121,7 +124,7 @@ func buildRawTransaction(accountState *AccountState, params *bean.CreateRawTxPar
 }
 
 // use for prv tx
-func proveTxPRV(tx *tx_ver2.Tx, params *tx_generic.TxPrivacyInitParams) error {
+func proveTxPRV(txCID int, tx *tx_ver2.Tx, params *tx_generic.TxPrivacyInitParams) error {
 	outputCoins, err := NewCoinV2ArrayFromPaymentInfoArray(params.PaymentInfo, params.TokenID)
 	if err != nil {
 		fmt.Printf("Cannot parse outputCoinV2 to outputCoins, error %v \n", err)
@@ -137,71 +140,45 @@ func proveTxPRV(tx *tx_ver2.Tx, params *tx_generic.TxPrivacyInitParams) error {
 	}
 
 	if tx.ShouldSignMetaData() {
-		if err := signMetadata(tx); err != nil {
+		if err := signMetadata(txCID, tx, params.SenderSK); err != nil {
 			panic(err)
 		}
 	}
 
 	// ringSig + mlsag
-	err = signOnMessage(tx, inputCoins, outputCoins, params, tx.Hash()[:])
+	err = signOnMessage(txCID, tx, inputCoins, outputCoins, params, tx.Hash()[:])
 	return err
 }
 
+//TODO
 func proveTxToken(tx *tx_ver2.Tx, params *tx_generic.TxPrivacyInitParams) error {
 	return nil
 }
 
-func signMetadata(tx *tx_ver2.Tx) error {
+func signMetadata(txCID int, tx *tx_ver2.Tx, debugPrivKey *privacy.PrivateKey) error {
 	metaSig := tx.Metadata.GetSig()
 	if metaSig != nil && len(metaSig) > 0 {
 		return errors.New("meta.Sig should be empty or nil")
 	}
 	data := tx.HashWithoutMetadataSig()[:]
-	_ = data
-	//TO BE SENT TO LEDGER FOR SIGNING
 	var signature []byte
+	var err error
+	if debugPrivKey != nil {
+		if signature, _, err = signSchnorrLocal(debugPrivKey, data); err != nil {
+			return err
+		}
+	} else {
+		if signature, _, err = signSchnorrLedger(txCID, tx.Hash()[:]); err != nil {
+			return err
+		}
+	}
 	tx.Metadata.SetSig(signature)
 	fmt.Println("Signature Detail", tx.Metadata.GetSig())
 	return nil
 }
 
-func createPrivKeyMlsag(inputCoins []privacy.PlainCoin, outputCoins []*privacy.CoinV2, senderSK *privacy.PrivateKey, commitmentToZero *privacy.Point) ([]*privacy.Scalar, error) {
-	sumRand := new(privacy.Scalar).FromUint64(0)
-	for _, in := range inputCoins {
-		sumRand.Add(sumRand, in.GetRandomness())
-	}
-	for _, out := range outputCoins {
-		sumRand.Sub(sumRand, out.GetRandomness())
-	}
-
-	privKeyMlsag := make([]*privacy.Scalar, len(inputCoins)+1)
-	for i := 0; i < len(inputCoins); i++ {
-		//TO BE SENT TO LEDGER FOR SIGNING
-
-		var err error
-		privKeyMlsag[i], err = inputCoins[i].ParsePrivateKeyOfCoin(*senderSK)
-		if err != nil {
-			utils.Logger.Log.Errorf("Cannot parse private key of coin %v", err)
-			return nil, err
-		}
-	}
-	commitmentToZeroRecomputed := new(privacy.Point).ScalarMult(privacy.PedCom.G[privacy.PedersenRandomnessIndex], sumRand)
-	match := privacy.IsPointEqual(commitmentToZeroRecomputed, commitmentToZero)
-	if !match {
-		return nil, utils.NewTransactionErr(utils.SignTxError, errors.New("Error : asset tag sum or commitment sum mismatch"))
-	}
-	privKeyMlsag[len(inputCoins)] = sumRand
-	return privKeyMlsag, nil
-}
-
 func initializeTxAndParams(account *Account, tx *tx_generic.TxBase, params *tx_generic.TxPrivacyInitParams) error {
 	var err error
-	// senderKeySet := incognitokey.KeySet{}
-	// if err := senderKeySet.InitFromPrivateKey(params.SenderSK); err != nil {
-	// 	utils.Logger.Log.Errorf("Cannot parse Private Key. Err %v", err)
-	// 	return utils.NewTransactionErr(utils.PrivateKeySenderInvalidError, err)
-	// }
-	// tx.sigPrivKey = *params.SenderSK
 	// Tx: initialize some values
 	if tx.LockTime == 0 {
 		tx.LockTime = time.Now().Unix()
@@ -254,7 +231,7 @@ func updateParamsWhenOverBalance(params *tx_generic.TxPrivacyInitParams, senderP
 	return nil
 }
 
-func signOnMessage(tx *tx_ver2.Tx, inp []privacy.PlainCoin, out []*privacy.CoinV2, params *tx_generic.TxPrivacyInitParams, hashedMessage []byte) error {
+func signOnMessage(txCID int, tx *tx_ver2.Tx, inp []privacy.PlainCoin, out []*privacy.CoinV2, params *tx_generic.TxPrivacyInitParams, hashedMessage []byte) error {
 	if tx.Sig != nil {
 		return utils.NewTransactionErr(utils.UnexpectedError, errors.New("input transaction must be an unsigned one"))
 	}
@@ -283,11 +260,21 @@ func signOnMessage(tx *tx_ver2.Tx, inp []privacy.PlainCoin, out []*privacy.CoinV
 	}
 
 	// Set sigPrivKey
-	privKeysMlsag, err := createPrivKeyMlsag(inp, out, params.SenderSK, commitmentToZero)
-	if err != nil {
-		utils.Logger.Log.Errorf("Cannot create private key of mlsag: %v", err)
-		return err
+	privKeysMlsag := []*operation.Scalar{}
+	if params.SenderSK != nil {
+		privKeysMlsag, err = createPrivKeyMlsagLocal(inp, out, params.SenderSK, commitmentToZero)
+		if err != nil {
+			utils.Logger.Log.Errorf("Cannot create private key of mlsag: %v", err)
+			return err
+		}
+	} else {
+		privKeysMlsag, err = createPrivKeyMlsagLedger(txCID, inp, out, commitmentToZero)
+		if err != nil {
+			utils.Logger.Log.Errorf("Cannot create private key of mlsag: %v", err)
+			return err
+		}
 	}
+
 	sag := mlsag.NewMlsag(privKeysMlsag, ring, pi)
 	sk, err := privacy.ArrayScalarToBytes(&privKeysMlsag)
 	if err != nil {
@@ -299,7 +286,6 @@ func signOnMessage(tx *tx_ver2.Tx, inp []privacy.PlainCoin, out []*privacy.CoinV
 	// Set Signature
 	mlsagSignature, err := sag.Sign(hashedMessage)
 	if err != nil {
-		utils.Logger.Log.Errorf("Cannot signOnMessage mlsagSignature, error %v ", err)
 		return err
 	}
 	// inputCoins already hold keyImage so set to nil to reduce size
