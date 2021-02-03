@@ -8,7 +8,7 @@ import (
 	"github.com/incognitochain/incognito-chain/privacy/privacy_v1/schnorr"
 )
 
-func createPrivKeyMlsagLocal(inputCoins []privacy.PlainCoin, outputCoins []*privacy.CoinV2, senderSK *privacy.PrivateKey, commitmentToZero *privacy.Point) ([]*privacy.Scalar, error) {
+func createPrivKeyMlsagHost(inputCoins []privacy.PlainCoin, outputCoins []*privacy.CoinV2, senderSK *privacy.PrivateKey, commitmentToZero *privacy.Point) ([]*privacy.Scalar, error) {
 	sumRand := new(privacy.Scalar).FromUint64(0)
 	for _, in := range inputCoins {
 		sumRand.Add(sumRand, in.GetRandomness())
@@ -35,7 +35,7 @@ func createPrivKeyMlsagLocal(inputCoins []privacy.PlainCoin, outputCoins []*priv
 }
 
 //signNoPrivacy
-func signSchnorrLocal(privKey *privacy.PrivateKey, hashedMessage []byte) (signatureBytes []byte, sigPubKey []byte, err error) {
+func signSchnorrHost(privKey *privacy.PrivateKey, hashedMessage []byte) (signatureBytes []byte, sigPubKey []byte, err error) {
 	/****** using Schnorr signature *******/
 	// sign with sigPrivKey
 	// prepare private key for Schnorr

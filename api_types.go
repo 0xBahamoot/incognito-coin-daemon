@@ -3,6 +3,7 @@ package main
 type API_create_tx_req struct {
 	ViaLedger bool
 	TxType    int
+	Account   string
 	TxParam   interface{}
 }
 

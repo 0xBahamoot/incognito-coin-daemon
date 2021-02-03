@@ -44,6 +44,7 @@ func main() {
 	}
 	go startAPIService("9000")
 	NODEMODE = *modeFlag
+	onGoingTxs = make(map[int]*txCreationInstance)
 	switch *modeFlag {
 	case MODELIGHT:
 		node := devframework.NewAppNode("fullnode", devframework.TestNet2Param, true, false)
