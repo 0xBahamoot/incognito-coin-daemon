@@ -20,6 +20,7 @@ import (
 	"github.com/incognitochain/incognito-chain/transaction/tx_generic"
 	"github.com/incognitochain/incognito-chain/transaction/tx_ver2"
 	"github.com/incognitochain/incognito-chain/transaction/utils"
+	"github.com/incognitochain/incognito-chain/wallet"
 )
 
 var pendingTx []string
@@ -30,6 +31,7 @@ type txCreationInstance struct {
 	Type          int
 	AccountState  *AccountState
 	ViaLedger     bool
+	TxParams      interface{}
 	wsConn        *websocket.Conn
 	respondWaitor *chan []byte //only 1 respond waitor
 	quitCh        chan struct{}
@@ -59,9 +61,11 @@ func CreateTx(req *API_create_tx_req, wsConn *websocket.Conn) {
 		Type:         req.TxType,
 		ViaLedger:    req.ViaLedger,
 		AccountState: accountList[req.Account],
+		TxParams:     req.TxParam,
 		wsConn:       wsConn,
 		quitCh:       make(chan struct{}),
 	}
+
 	onGoingTxs[txCID] = &newInstance
 	accountListLck.RUnlock()
 	onGoingTxsLck.Unlock()
@@ -100,8 +104,17 @@ func (inst *txCreationInstance) Start() {
 	case TXTRANFERPRV:
 
 	case TXTRANFERTOKEN:
+
 	case TXSTAKING:
+
 	case TXSTOPSTAKING:
+
+	case TXTRADECROSSPOOL:
+
+	case TXTRADE:
+
+	case TXCONTRIBUTION:
+
 	}
 }
 
@@ -166,14 +179,14 @@ func (inst *txCreationInstance) RequestLedgerCreateRingSig() ([]byte, error) {
 	return result, nil
 }
 
-func createTxPRV(instance *txCreationInstance, tokenID string, paymentInfo []*privacy.PaymentInfo, metadataParam metadata.Metadata, debugKeyset *incognitokey.KeySet) (metadata.Transaction, error) {
+func createTxPRV(instance *txCreationInstance, tokenID string, paymentInfo []*privacy.PaymentInfo, metadataParam metadata.Metadata, debugKeyset *incognitokey.KeySet, info []byte) (metadata.Transaction, error) {
 	//create tx param
 	rawTxParam := bean.CreateRawTxParam{
 		SenderKeySet:         debugKeyset,
 		ShardIDSender:        instance.AccountState.Account.ShardID,
 		PaymentInfos:         paymentInfo,
 		HasPrivacyCoin:       true,
-		Info:                 nil,
+		Info:                 info,
 		EstimateFeeCoinPerKb: 0,
 	}
 	var stateDB *statedb.StateDB
@@ -430,4 +443,58 @@ func signOnMessage(instance *txCreationInstance, tx *tx_ver2.Tx, inp []privacy.P
 		}
 	}
 	return nil
+}
+
+func extractRawTxParam(params interface{}) ([]*privacy.PaymentInfo, int64, []byte, error) {
+	arrayParams := common.InterfaceSlice(params)
+	if len(arrayParams) < 3 {
+		return nil, 0, nil, errors.New("not enough param")
+	}
+	var ok bool
+	receivers := make(map[string]interface{})
+	if arrayParams[1] != nil {
+		receivers, ok = arrayParams[0].(map[string]interface{})
+		if !ok {
+			return nil, 0, nil, errors.New("receivers param is invalid")
+		}
+	}
+	paymentInfos := make([]*privacy.PaymentInfo, 0)
+	for paymentAddressStr, amount := range receivers {
+		keyWalletReceiver, err := wallet.Base58CheckDeserialize(paymentAddressStr)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		if len(keyWalletReceiver.KeySet.PaymentAddress.Pk) == 0 {
+			return nil, 0, nil, fmt.Errorf("payment info %+v is invalid", paymentAddressStr)
+		}
+
+		amountParam, err := common.AssertAndConvertNumber(amount)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+
+		paymentInfo := &privacy.PaymentInfo{
+			Amount:         amountParam,
+			PaymentAddress: keyWalletReceiver.KeySet.PaymentAddress,
+		}
+		paymentInfos = append(paymentInfos, paymentInfo)
+	}
+	hasPrivacyCoinParam := float64(-1)
+	if len(arrayParams) > 3 {
+		hasPrivacyCoinParam, ok = arrayParams[3].(float64)
+		if !ok {
+			return nil, 0, nil, errors.New("has privacy for tx is invalid")
+		}
+	}
+	info := []byte{}
+	if len(arrayParams) > 5 {
+		if arrayParams[5] != nil {
+			infoStr, ok := arrayParams[5].(string)
+			if !ok {
+				return nil, 0, nil, errors.New("info is invalid")
+			}
+			info = []byte(infoStr)
+		}
+	}
+	return paymentInfos, int64(hasPrivacyCoinParam), info, nil
 }
