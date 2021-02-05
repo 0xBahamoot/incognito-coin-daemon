@@ -80,7 +80,7 @@ func NewStakingMetadata(account *Account, metadataParam interface{}) (*metadata.
 	return result, nil
 }
 
-func NewStopStakingMetadata(account *Account, metadataParam interface{}) (*metadata.StopAutoStakingMetadata, error) {
+func NewStopAutoStakingMetadata(account *Account, metadataParam interface{}) (*metadata.StopAutoStakingMetadata, error) {
 	arrayParams := common.InterfaceSlice(metadataParam)
 	var result *metadata.StopAutoStakingMetadata
 	//Get data to create meta data

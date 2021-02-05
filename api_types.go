@@ -1,10 +1,10 @@
 package main
 
 type API_create_tx_req struct {
-	ViaLedger bool
-	TxType    int
-	Account   string
-	TxParam   interface{}
+	Account    string      `json:"account"`
+	PrivateKey string      `json:"privatekey"`
+	TxType     string      `json:"type"`
+	TxParams   interface{} `json:"params"`
 }
 
 type API_submit_keyimages_req struct {

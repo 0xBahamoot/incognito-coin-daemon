@@ -166,7 +166,7 @@ func initCoinService() {
 //----------------------------------------
 //FUNCTIONS USED FOR CREATING TX
 //
-func chooseCoinsForAccount(accountState *AccountState, paymentInfos []*privacy.PaymentInfo, metadataParam metadata.Metadata, privacyCustomTokenParams *transaction.TokenParam) ([]coin.PlainCoin, uint64, error) {
+func chooseCoinsForAccount(accountState *AccountState, tokenID string, paymentInfos []*privacy.PaymentInfo, metadataParam metadata.Metadata, privacyCustomTokenParams *transaction.TokenParam) ([]coin.PlainCoin, uint64, error) {
 	// estimate fee according to 8 recent block
 	shardIDSender := accountState.Account.ShardID
 	// calculate total amount to send
@@ -175,12 +175,18 @@ func chooseCoinsForAccount(accountState *AccountState, paymentInfos []*privacy.P
 		totalAmmount += receiver.Amount
 	}
 	// get list outputcoins tx
-	prvCoinID := &common.Hash{}
-	prvCoinID.SetBytes(common.PRVCoinID[:])
+	if tokenID == "" {
+		prvCoinID := &common.Hash{}
+		prvCoinID.SetBytes(common.PRVCoinID[:])
+		tokenID = prvCoinID.String()
+	}
 	accountState.lock.RLock()
 	defer accountState.lock.RUnlock()
-	coinsPubkey := append([]string{}, accountState.AvailableCoins[prvCoinID.String()]...)
-	plainCoins, err := getCoinsByCoinPubkey(accountState.Account.PAstr, prvCoinID.String(), coinsPubkey)
+	if _, ok := accountState.AvailableCoins[tokenID]; !ok {
+		return nil, 0, errors.New("not enough token coins")
+	}
+	coinsPubkey := append([]string{}, accountState.AvailableCoins[tokenID]...)
+	plainCoins, err := getCoinsByCoinPubkey(accountState.Account.PAstr, tokenID, coinsPubkey)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -309,9 +315,6 @@ func estimateFee(
 	beaconHeight int64) (uint64, uint64, uint64, error) {
 	return 8, 8, 8, nil
 	// check real fee(nano PRV) per tx
-	var realFee uint64
-	estimateFeeCoinPerKb := uint64(0)
-	estimateTxSizeInKb := uint64(0)
 	// tokenID := &common.Hash{}
 	tokenIDStr := ""
 	if isGetPTokenFee {
@@ -324,13 +327,13 @@ func estimateFee(
 	if err != nil {
 		return 0, 0, 0, err
 	}
-	estimateFeeCoinPerKb = estimateFeeResult.EstimateFeeCoinPerKb
-	estimateTxSizeInKb = estimateFeeResult.EstimateTxSizeInKb
+	estimateFeeCoinPerKb := estimateFeeResult.EstimateFeeCoinPerKb
+	estimateTxSizeInKb := estimateFeeResult.EstimateTxSizeInKb
 
 	limitFee := uint64(1)
 	//we default to ver 2
 	estimateTxSizeInKb = transaction.EstimateTxSize(transaction.NewEstimateTxSizeParam(2, len(candidatePlainCoins), len(paymentInfos), hasPrivacy, metadata, privacyCustomTokenParams, limitFee))
-	realFee = uint64(estimateFeeCoinPerKb) * uint64(estimateTxSizeInKb)
+	realFee := uint64(estimateFeeCoinPerKb) * uint64(estimateTxSizeInKb)
 	return realFee, estimateFeeCoinPerKb, estimateTxSizeInKb, nil
 }
 

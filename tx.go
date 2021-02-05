@@ -30,6 +30,7 @@ type txCreationInstance struct {
 	TxCID         int
 	Type          int
 	AccountState  *AccountState
+	PrivateKeyset *incognitokey.KeySet
 	ViaLedger     bool
 	TxParams      interface{}
 	wsConn        *websocket.Conn
@@ -41,29 +42,51 @@ var onGoingTxs map[int]*txCreationInstance
 var onGoingTxsLck sync.Mutex
 
 func CreateTx(req *API_create_tx_req, wsConn *websocket.Conn) {
-	if req.TxType < 0 || req.TxType > 3 {
-		w, err := wsConn.NextWriter(websocket.TextMessage)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		w.Write([]byte("unsupported TxType"))
-		if err := w.Close(); err != nil {
-			log.Println(err)
-			return
-		}
-	}
 	onGoingTxsLck.Lock()
 	accountListLck.RLock()
 	txCID := len(onGoingTxs)
+	var txType int
+	switch req.TxType {
+	case "transferprv":
+		txType = 0
+	case "transfertoken":
+		txType = 1
+	case "staking":
+		txType = 2
+	case "stopstaking":
+		txType = 3
+	case "trade":
+		txType = 4
+	case "tradecross":
+		txType = 5
+	case "contribution":
+		txType = 6
+	default:
+		wsConn.Close()
+		log.Println(errors.New("unsupported tx type"))
+		return
+	}
+	var viaLedger bool
+	var ks *incognitokey.KeySet
+	if req.PrivateKey != "" {
+		wl, err := wallet.Base58CheckDeserialize(req.PrivateKey)
+		if err != nil {
+			wsConn.Close()
+			log.Println(err)
+			return
+		}
+		viaLedger = true
+		ks = &wl.KeySet
+	}
 	newInstance := txCreationInstance{
-		TxCID:        txCID,
-		Type:         req.TxType,
-		ViaLedger:    req.ViaLedger,
-		AccountState: accountList[req.Account],
-		TxParams:     req.TxParam,
-		wsConn:       wsConn,
-		quitCh:       make(chan struct{}),
+		TxCID:         txCID,
+		Type:          txType,
+		ViaLedger:     viaLedger,
+		PrivateKeyset: ks,
+		AccountState:  accountList[req.Account],
+		TxParams:      req.TxParams,
+		wsConn:        wsConn,
+		quitCh:        make(chan struct{}),
 	}
 
 	onGoingTxs[txCID] = &newInstance
@@ -102,19 +125,55 @@ func completeTx(txCID int) {
 func (inst *txCreationInstance) Start() {
 	switch inst.Type {
 	case TXTRANFERPRV:
-
+		txParams, err := extractRawTxParam(inst.TxParams)
+		if err != nil {
+			panic(err)
+		}
+		createTxPRV(inst, txParams, nil, inst.PrivateKeyset)
 	case TXTRANFERTOKEN:
-
+		txParams, err := extractRawTxTokenParam(inst.TxParams)
+		if err != nil {
+			panic(err)
+		}
+		createTxToken(inst, txParams, nil, inst.PrivateKeyset)
 	case TXSTAKING:
-
+		txParams, err := extractRawTxParam(inst.TxParams)
+		if err != nil {
+			panic(err)
+		}
+		metadata, err := NewStakingMetadata(inst.AccountState.Account, inst.TxParams)
+		if err != nil {
+			panic(err)
+		}
+		createTxPRV(inst, txParams, metadata, inst.PrivateKeyset)
 	case TXSTOPSTAKING:
-
+		txParams, err := extractRawTxParam(inst.TxParams)
+		if err != nil {
+			panic(err)
+		}
+		metadata, err := NewStopAutoStakingMetadata(inst.AccountState.Account, inst.TxParams)
+		if err != nil {
+			panic(err)
+		}
+		createTxPRV(inst, txParams, metadata, inst.PrivateKeyset)
 	case TXTRADECROSSPOOL:
-
+		metadata, err := NewPDECrossPoolTradeRequest(inst.AccountState.Account, inst.TxParams)
+		if err != nil {
+			panic(err)
+		}
+		_ = metadata
 	case TXTRADE:
-
+		metadata, err := NewPDETradeRequest(inst.AccountState.Account, inst.TxParams)
+		if err != nil {
+			panic(err)
+		}
+		_ = metadata
 	case TXCONTRIBUTION:
-
+		metadata, err := NewPDEContribution(inst.AccountState.Account, inst.TxParams)
+		if err != nil {
+			panic(err)
+		}
+		_ = metadata
 	}
 }
 
@@ -179,50 +238,45 @@ func (inst *txCreationInstance) RequestLedgerCreateRingSig() ([]byte, error) {
 	return result, nil
 }
 
-func createTxPRV(instance *txCreationInstance, tokenID string, paymentInfo []*privacy.PaymentInfo, metadataParam metadata.Metadata, debugKeyset *incognitokey.KeySet, info []byte) (metadata.Transaction, error) {
+func createTxPRV(instance *txCreationInstance, txParams *bean.CreateRawTxParam, metadataParam metadata.Metadata, debugKeyset *incognitokey.KeySet) (metadata.Transaction, error) {
 	//create tx param
-	rawTxParam := bean.CreateRawTxParam{
-		SenderKeySet:         debugKeyset,
-		ShardIDSender:        instance.AccountState.Account.ShardID,
-		PaymentInfos:         paymentInfo,
-		HasPrivacyCoin:       true,
-		Info:                 info,
-		EstimateFeeCoinPerKb: 0,
-	}
+	txParams.SenderKeySet = debugKeyset
+	txParams.ShardIDSender = instance.AccountState.Account.ShardID
+
 	var stateDB *statedb.StateDB
 	if NODEMODE == MODESIM {
 		stateDB = localnode.GetBlockchain().GetBestStateShard(instance.AccountState.Account.ShardID).GetCopiedTransactionStateDB()
 	} else {
 		stateDB = TransactionStateDB[instance.AccountState.Account.ShardID]
 	}
-	tx, err := buildRawTransaction(instance, &rawTxParam, metadataParam, stateDB)
+	tx, err := buildRawTransaction(instance, txParams, metadataParam, stateDB)
 	if err != nil {
 		return nil, err
 	}
 	return tx, nil
 }
 
-func createTxToken(instance *txCreationInstance, tokenID string, paymentInfos []*privacy.PaymentInfo, metadataParam metadata.Metadata, debugKeyset *incognitokey.KeySet) (metadata.Transaction, error) {
+func createTxToken(instance *txCreationInstance, txParams *bean.CreateRawPrivacyTokenTxParam, metadataParam metadata.Metadata, debugKeyset *incognitokey.KeySet) (metadata.Transaction, error) {
 	//create tx param
-	rawTxParam := bean.CreateRawTxParam{
-		SenderKeySet:         debugKeyset,
-		ShardIDSender:        instance.AccountState.Account.ShardID,
-		PaymentInfos:         paymentInfos,
-		HasPrivacyCoin:       true,
-		Info:                 nil,
-		EstimateFeeCoinPerKb: 0,
-	}
-	tx, err := buildRawTransaction(instance, &rawTxParam, metadataParam, TransactionStateDB[instance.AccountState.Account.ShardID])
+	txParams.SenderKeySet = debugKeyset
+	txParams.ShardIDSender = instance.AccountState.Account.ShardID
+
+	tx, err := buildRawTransactionToken(instance, txParams, metadataParam, TransactionStateDB[instance.AccountState.Account.ShardID])
 	if err != nil {
 		return nil, err
 	}
 	return tx, nil
+}
+
+func buildRawTransactionToken(instance *txCreationInstance, params *bean.CreateRawPrivacyTokenTxParam, meta metadata.Metadata, stateDB *statedb.StateDB) (metadata.Transaction, error) {
+	var tx tx_ver2.Tx
+	// BuildRawPrivacyCustomTokenTransaction
+	return &tx, nil
 }
 
 func buildRawTransaction(instance *txCreationInstance, params *bean.CreateRawTxParam, meta metadata.Metadata, stateDB *statedb.StateDB) (metadata.Transaction, error) {
 	// get output coins to spend and real fee
-	inputCoins, realFee, err := chooseCoinsForAccount(instance.AccountState,
-		params.PaymentInfos, meta, nil)
+	inputCoins, realFee, err := chooseCoinsForAccount(instance.AccountState, "", params.PaymentInfos, meta, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -445,32 +499,32 @@ func signOnMessage(instance *txCreationInstance, tx *tx_ver2.Tx, inp []privacy.P
 	return nil
 }
 
-func extractRawTxParam(params interface{}) ([]*privacy.PaymentInfo, int64, []byte, error) {
+func extractRawTxParam(params interface{}) (*bean.CreateRawTxParam, error) {
 	arrayParams := common.InterfaceSlice(params)
-	if len(arrayParams) < 3 {
-		return nil, 0, nil, errors.New("not enough param")
+	if len(arrayParams) < 2 {
+		return nil, errors.New("not enough param")
 	}
 	var ok bool
 	receivers := make(map[string]interface{})
-	if arrayParams[1] != nil {
+	if arrayParams[0] != nil {
 		receivers, ok = arrayParams[0].(map[string]interface{})
 		if !ok {
-			return nil, 0, nil, errors.New("receivers param is invalid")
+			return nil, errors.New("receivers param is invalid")
 		}
 	}
 	paymentInfos := make([]*privacy.PaymentInfo, 0)
 	for paymentAddressStr, amount := range receivers {
 		keyWalletReceiver, err := wallet.Base58CheckDeserialize(paymentAddressStr)
 		if err != nil {
-			return nil, 0, nil, err
+			return nil, err
 		}
 		if len(keyWalletReceiver.KeySet.PaymentAddress.Pk) == 0 {
-			return nil, 0, nil, fmt.Errorf("payment info %+v is invalid", paymentAddressStr)
+			return nil, fmt.Errorf("payment info %+v is invalid", paymentAddressStr)
 		}
 
 		amountParam, err := common.AssertAndConvertNumber(amount)
 		if err != nil {
-			return nil, 0, nil, err
+			return nil, err
 		}
 
 		paymentInfo := &privacy.PaymentInfo{
@@ -479,22 +533,77 @@ func extractRawTxParam(params interface{}) ([]*privacy.PaymentInfo, int64, []byt
 		}
 		paymentInfos = append(paymentInfos, paymentInfo)
 	}
-	hasPrivacyCoinParam := float64(-1)
-	if len(arrayParams) > 3 {
-		hasPrivacyCoinParam, ok = arrayParams[3].(float64)
-		if !ok {
-			return nil, 0, nil, errors.New("has privacy for tx is invalid")
-		}
+	estimateFeeCoinPerKb, ok := arrayParams[1].(float64)
+	if !ok {
+		return nil, errors.New("estimate fee coin per kb is invalid")
 	}
+
+	// hasPrivacyCoinParam := float64(-1)
+	// if len(arrayParams) > 3 {
+	// 	hasPrivacyCoinParam, ok = arrayParams[2].(float64)
+	// 	if !ok {
+	// 		return nil, errors.New("has privacy for tx is invalid")
+	// 	}
+	// }
+
+	// param #3 arrayParams[2]: metadata | tokenparam (optional)
+	// don't do anything
+
 	info := []byte{}
-	if len(arrayParams) > 5 {
-		if arrayParams[5] != nil {
-			infoStr, ok := arrayParams[5].(string)
+	if len(arrayParams) > 3 {
+		if arrayParams[3] != nil {
+			infoStr, ok := arrayParams[3].(string)
 			if !ok {
-				return nil, 0, nil, errors.New("info is invalid")
+				return nil, errors.New("info is invalid")
 			}
 			info = []byte(infoStr)
 		}
 	}
-	return paymentInfos, int64(hasPrivacyCoinParam), info, nil
+	return &bean.CreateRawTxParam{
+		PaymentInfos:         paymentInfos,
+		EstimateFeeCoinPerKb: int64(estimateFeeCoinPerKb),
+		HasPrivacyCoin:       true,
+		Info:                 info,
+	}, nil
+}
+
+func extractRawTxTokenParam(params interface{}) (*bean.CreateRawPrivacyTokenTxParam, error) {
+	arrayParams := common.InterfaceSlice(params)
+	if len(arrayParams) < 3 {
+		return nil, errors.New("not enough param")
+	}
+
+	// create basic param for tx
+	txparam, err := extractRawTxParam(params)
+	if err != nil {
+		return nil, err
+	}
+
+	// param #5: token component
+	tokenParamsRaw, ok := arrayParams[2].(map[string]interface{})
+	if !ok {
+		return nil, errors.New("token param is invalid")
+	}
+
+	isGetPTokenFee := false
+	if isGetPTokenFeeParam, ok := tokenParamsRaw["IsGetPTokenFee"].(bool); ok {
+		isGetPTokenFee = isGetPTokenFeeParam
+	}
+
+	unitPTokenFee := int64(-1)
+	if unitPTokenFeeParam, ok := tokenParamsRaw["UnitPTokenFee"].(float64); ok {
+		unitPTokenFee = int64(unitPTokenFeeParam)
+	}
+	/****** END FEtch data from params *********/
+
+	return &bean.CreateRawPrivacyTokenTxParam{
+		PaymentInfos:         txparam.PaymentInfos,
+		EstimateFeeCoinPerKb: int64(txparam.EstimateFeeCoinPerKb),
+		HasPrivacyCoin:       true,
+		Info:                 txparam.Info,
+		HasPrivacyToken:      true,
+		TokenParamsRaw:       tokenParamsRaw,
+		IsGetPTokenFee:       isGetPTokenFee,
+		UnitPTokenFee:        unitPTokenFee,
+	}, nil
 }
