@@ -22,6 +22,7 @@ const (
 )
 
 var NODEMODE = ""
+var debugNode *devframework.NodeEngine
 
 func main() {
 	modeFlag := flag.String("mode", "light", "daemon mode")
@@ -59,6 +60,7 @@ func main() {
 			ChainParam: devframework.NewChainParam(devframework.ID_TESTNET2).SetActiveShardNumber(8),
 			DisableLog: true,
 		})
+		debugNode = node
 		localnode = node
 		rpcnode = node.GetRPC()
 		// initCoinService()
@@ -66,41 +68,62 @@ func main() {
 
 		node.ShowBalance(node.GenesisAccount)
 		acc0, _ := account.NewAccountFromPrivatekey("111111bgk2j6vZQvzq8tkonDLLXEvLkMwBMn5BoLXLpf631boJnPDGEQMGvA1pRfT71Crr7MM2ShvpkxCBWBL2icG22cXSpcKybKCQmaxa")
-		acc1, _ := account.GenerateAccountByShard(0, 3, "abc")
-
+		// acc1, _ := account.GenerateAccountByShard(0, 3, "abc")
+		// fmt.Println("acc0.PaymentAddress", acc0.PaymentAddress)
 		OTAKey := hex.EncodeToString(acc0.Keyset.OTAKey.GetOTASecretKey().ToBytesS())
 		viewKey := hex.EncodeToString(acc0.Keyset.ReadonlyKey.Rk)
 		importAccount("testacc", acc0.PaymentAddress, viewKey, OTAKey)
+
 		node.Pause()
-		node.SendPRV(node.GenesisAccount, acc0, 10000)
+		node.SendPRV(node.GenesisAccount, acc0, 2750000000000)
 		for i := 0; i < 10; i++ {
 			node.GenerateBlock().NextRound()
 		}
-		node.SendPRV(node.GenesisAccount, acc0, 30000)
-		for i := 0; i < 4; i++ {
-			node.GenerateBlock().NextRound()
+
+		node.SendPRV(acc0, node.GenesisAccount, 6786)
+		time.Sleep(10 * time.Second)
+		r, err := node.GetRPC().API_SendTxCreateCustomToken(node.GenesisAccount.PrivateKey, acc0.PaymentAddress, true, "LamToken", "LAM", 600000000)
+		if err != nil {
+			panic(err)
 		}
-		node.SendPRV(acc0, acc1, 6786)
-		node.SendPRV(node.GenesisAccount, acc0, 70000)
-		for i := 0; i < 4; i++ {
+		fmt.Println("r.TokenID", r.TokenID)
+		for i := 0; i < 10; i++ {
 			node.GenerateBlock().NextRound()
 		}
 
 		time.Sleep(20 * time.Second)
-
-		node.SendPRV(acc0, acc1, 6786)
+		r1, err := node.GetRPC().API_SendTxCustomToken(acc0.PrivateKey, r.TokenID, map[string]uint64{
+			node.GenesisAccount.PaymentAddress: 20000,
+		}, 8, true)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println("r1.TxID", r1.TxID)
+		// node.SendPRV(node.GenesisAccount, acc0, 30000)
 		for i := 0; i < 10; i++ {
 			node.GenerateBlock().NextRound()
 		}
+		// node.SendPRV(acc0, acc1, 6786)
+		// node.SendPRV(node.GenesisAccount, acc0, 70000)
+		// for i := 0; i < 4; i++ {
+		// 	node.GenerateBlock().NextRound()
+		// }
 
 		// time.Sleep(20 * time.Second)
+		// node.SendPRV(acc0, acc1, 6786)
+		// for i := 0; i < 10; i++ {
+		// 	node.GenerateBlock().NextRound()
+		// }
+
+		time.Sleep(20 * time.Second)
 		// keyimages, err := getEncryptKeyImages("testacc")
 		// if err != nil {
 		// 	panic(err)
 		// }
 
-		// testkms := make(map[string]string)
-		// for _, coinList := range keyimages {
+		// testkms := make(map[string]map[string]string)
+		// for tokenID, coinList := range keyimages {
+		// 	testkms[tokenID] = make(map[string]string)
 		// 	for coinPk, km := range coinList {
 		// 		h, _ := hex.DecodeString(km)
 		// 		pk, _ := hex.DecodeString(coinPk)
@@ -110,16 +133,19 @@ func main() {
 		// 		H := s.FromBytesS(h)
 		// 		k := new(operation.Scalar).Add(H, K)
 		// 		img := new(operation.Point).ScalarMult(Hp, k)
-		// 		testkms[coinPk] = hex.EncodeToString(img.ToBytesS())
+		// 		testkms[tokenID][coinPk] = hex.EncodeToString(img.ToBytesS())
 		// 	}
 		// }
-
-		// e := submitKeyimages(common.PRVCoinID.String(), "testacc", testkms)
-		// if e != nil {
-		// 	panic(e)
+		// for tokenID, kms := range testkms {
+		// 	e := submitKeyimages(tokenID, "testacc", kms)
+		// 	if e != nil {
+		// 		panic(e)
+		// 	}
+		// 	fmt.Println("e", e)
+		// 	fmt.Println("tokenID", tokenID, "len(kms)", len(kms))
 		// }
-		// fmt.Println("e", e)
-		// node.Pause()
+
+		// // node.Pause()
 		// time.Sleep(5 * time.Second)
 		// var paymentInfos []*privacy.PaymentInfo
 		// paymentInfos = append(paymentInfos, &privacy.PaymentInfo{
@@ -139,6 +165,7 @@ func main() {
 		// }
 		// node.ShowBalance(acc0)
 		node.Pause()
+
 		return
 	default:
 		panic("unknown mode")

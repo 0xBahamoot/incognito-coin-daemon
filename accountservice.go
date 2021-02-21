@@ -127,13 +127,21 @@ func scanForNewCoins() {
 		accountListLck.RLock()
 		////////////////////////////////////
 		// add more token
-		var wg sync.WaitGroup
-		var tokenID *common.Hash
-		if tokenID == nil {
-			tokenID = &common.Hash{}
-			tokenID.SetBytes(common.PRVCoinID[:])
-		}
 
+		var wg sync.WaitGroup
+		var tokenIDs []string
+		// if tokenID == nil {
+		// 	tokenID = &common.Hash{}
+		// 	tokenID.SetBytes(common.PRVCoinID[:])
+		// }
+		tokenIDs = append(tokenIDs, common.PRVCoinID.String())
+		tokensInfo, err := rpcnode.API_ListPrivacyCustomToken()
+		if err != nil {
+			panic(err)
+		}
+		for _, tokenInfo := range tokensInfo.ListCustomToken {
+			tokenIDs = append(tokenIDs, tokenInfo.ID)
+		}
 		for name, account := range accountList {
 			wg.Add(1)
 			go func(n string, a *AccountState) {
@@ -141,21 +149,27 @@ func scanForNewCoins() {
 				a.lock.Lock()
 				fmt.Printf("scan coins for account %s\n", n)
 				a.isReady = false
-				coinList, err := GetCoinsByPaymentAddress(a.Account, nil)
-				if err != nil {
-					fmt.Println(err)
-				}
-				if len(coinList) > 0 {
-					coins, err := checkCoinExistAndSave(a.Account.PAstr, tokenID.String(), coinList)
+				for _, tokenID := range tokenIDs {
+					tokenIDHash, _ := common.Hash{}.NewHashFromStr(tokenID)
+					coinList, err := GetCoinsByPaymentAddress(a.Account, tokenIDHash)
 					if err != nil {
-						panic(err)
+						fmt.Println(err)
 					}
-					a.EncryptedCoins[tokenID.String()] = append(a.EncryptedCoins[tokenID.String()], coins...)
-					for _, coin := range coinList {
-						key := hex.EncodeToString(coin.GetPublicKey().ToBytesS())
-						a.CoinsValue[key] = coin.GetValue()
+					if len(coinList) > 0 {
+						coins, err := checkCoinExistAndSave(a.Account.PAstr, tokenID, coinList)
+						if err != nil {
+							panic(err)
+						}
+						a.EncryptedCoins[tokenID] = append(a.EncryptedCoins[tokenID], coins...)
+						for _, coin := range coinList {
+							key := hex.EncodeToString(coin.GetPublicKey().ToBytesS())
+							a.CoinsValue[key] = coin.GetValue()
+							fmt.Println("a.CoinsValue[key]", coin.GetValue())
+						}
+						fmt.Println(len(a.EncryptedCoins[tokenID]), "of ", tokenID, "need decrypt")
 					}
 				}
+
 				a.lock.Unlock()
 				a.isReady = true
 				fmt.Printf("account %s is ready\n", n)
@@ -269,9 +283,7 @@ func (acc *AccountState) WatchBalance() {
 				for idx, used := range result {
 					if used {
 						coinUsed = append(coinUsed, acc.AvailableCoins[token][idx])
-						// panic(0)
-					}
-					if !used {
+					} else {
 						coinRemain = append(coinRemain, acc.AvailableCoins[token][idx])
 					}
 				}

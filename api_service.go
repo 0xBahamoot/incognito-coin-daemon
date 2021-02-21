@@ -113,16 +113,26 @@ func cancelAllTxsHandler(w http.ResponseWriter, r *http.Request) {
 
 func createTxHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	_ = conn
+	_, message, err := conn.ReadMessage()
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	var txReq API_create_tx_req
+	err = json.Unmarshal(message, &txReq)
+	if err != nil {
+		log.Println(err)
+		conn.Close()
+		return
+	}
+	fmt.Println("receiving request:", string(message))
+	CreateTx(&txReq, conn)
 }
 
 func getAccountListHandler(w http.ResponseWriter, r *http.Request) {
