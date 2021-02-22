@@ -81,9 +81,22 @@ func createMlsagSigLedger(instance *txCreationInstance, ring *mlsag.Ring, pi int
 }
 
 //signNoPrivacy
-func signSchnorrLedger(instance *txCreationInstance, hashedMessage []byte) (signatureBytes []byte, sigPubKey []byte, err error) {
-	sig, err := RequestLedgerSignSchnorr(instance, hashedMessage)
-	return sig, nil, err
+func signSchnorrLedger(instance *txCreationInstance, hashedMessage []byte, isPrivacy bool) ([]byte, []byte, error) {
+	rBytes := []byte{}
+	r := new(privacy.Scalar).FromUint64(0)
+	if isPrivacy {
+		r = operation.RandomScalar()
+		rBytes = r.ToBytesS()
+	} else {
+		rBytes = r.ToBytesS()
+	}
+
+	publicKey, _ := new(operation.Point).FromBytesS(instance.AccountState.Account.PaymentAddress.Pk)
+	publicKey.Add(publicKey, new(operation.Point).ScalarMult(operation.PedCom.G[operation.PedersenRandomnessIndex], r))
+	sigPubKey := publicKey.ToBytesS()
+
+	sig, err := RequestLedgerSignSchnorr(instance, hashedMessage, rBytes)
+	return sig, sigPubKey, err
 }
 
 func createMlsagSigCALedger(instance *txCreationInstance, ring *mlsag.Ring, pi int, hashedMessage []byte, inputCoins []privacy.PlainCoin, outputCoins []*privacy.CoinV2, outputSharedSecrets []*privacy.Point, params *tx_generic.TxPrivacyInitParams, shardID byte, commitmentsToZero []*privacy.Point, tx *tx_ver2.Tx) error {
@@ -101,7 +114,7 @@ func createMlsagSigCALedger(instance *txCreationInstance, ring *mlsag.Ring, pi i
 
 	senderSK := params.SenderSK
 	mySkBytes := (*senderSK)[:]
-	for i := 0; i < len(inputCoins); i += 1 {
+	for i := 0; i < len(inputCoins); i++ {
 		var err error
 		privKeysMlsag[i], err = inputCoins[i].ParsePrivateKeyOfCoin(*senderSK)
 		if err != nil {
@@ -216,7 +229,7 @@ func createMlsagSigCALedger(instance *txCreationInstance, ring *mlsag.Ring, pi i
 	return err
 }
 
-func RequestLedgerSignSchnorr(inst *txCreationInstance, message []byte) ([]byte, error) {
+func RequestLedgerSignSchnorr(inst *txCreationInstance, message []byte, r []byte) ([]byte, error) {
 	request := LedgerRequest{
 		Cmd: "signschnorr",
 	}
@@ -230,11 +243,11 @@ func RequestLedgerSignSchnorr(inst *txCreationInstance, message []byte) ([]byte,
 
 	pedRandom := operation.PedCom.G[operation.PedersenRandomnessIndex].GetKey()
 	pedPrivate := operation.PedCom.G[operation.PedersenPrivateKeyIndex].GetKey()
-	r := new(privacy.Scalar).FromUint64(0)
+
 	requestData := ReqStruct{
 		PedRandom:  pedRandom[:],
 		PedPrivate: pedPrivate[:],
-		Randomness: r.ToBytesS(),
+		Randomness: r,
 		Message:    message,
 	}
 
@@ -253,7 +266,7 @@ func RequestLedgerSignSchnorr(inst *txCreationInstance, message []byte) ([]byte,
 		z2Bytes = respondBytes[64:]
 	}
 	sigBytes := append(eBytes, append(z1Bytes, z2Bytes...)...)
-	//double check
+
 	schnorrSig := schnorr.SchnSignature{}
 	err = schnorrSig.SetBytes(sigBytes)
 

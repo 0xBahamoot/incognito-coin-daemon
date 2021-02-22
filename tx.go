@@ -446,7 +446,7 @@ func buildRawTransaction(instance *txCreationInstance, params *bean.CreateRawTxP
 				return nil, err
 			}
 		} else {
-			if tx.Sig, tx.SigPubKey, err = signSchnorrLedger(instance, tx.Hash()[:]); err != nil {
+			if tx.Sig, tx.SigPubKey, err = signSchnorrLedger(instance, tx.Hash()[:], false); err != nil {
 				return nil, err
 			}
 		}

@@ -55,12 +55,15 @@ func createMlsagSigHost(ring *mlsag.Ring, pi int, hashedMessage []byte, inputCoi
 }
 
 //signNoPrivacy
-func signSchnorrHost(privKey *privacy.PrivateKey, hashedMessage []byte) (signatureBytes []byte, sigPubKey []byte, err error) {
+func signSchnorrHost(privKey *privacy.PrivateKey, hashedMessage []byte, isPrivacy bool) (signatureBytes []byte, sigPubKey []byte, err error) {
 	/****** using Schnorr signature *******/
 	// sign with sigPrivKey
 	// prepare private key for Schnorr
 	sk := new(operation.Scalar).FromBytesS(*privKey)
 	r := new(operation.Scalar).FromUint64(0)
+	if isPrivacy {
+		r = operation.RandomScalar()
+	}
 	sigKey := new(schnorr.SchnorrPrivateKey)
 	sigKey.Set(sk, r)
 	signature, err := sigKey.Sign(hashedMessage)
