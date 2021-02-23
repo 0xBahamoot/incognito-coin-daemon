@@ -26,7 +26,7 @@ var debugNode *devframework.NodeEngine
 
 func main() {
 	modeFlag := flag.String("mode", "light", "daemon mode")
-	rpcFlag := flag.String("rpchost", "127.0.0.1:9334", "rpc host")
+	rpcFlag := flag.String("rpchost", "http://127.0.0.1:9334", "rpc host")
 	flag.Parse()
 	err := initcoinDB("node")
 	if err != nil {
@@ -55,6 +55,7 @@ func main() {
 	case MODERPC:
 		node := devframework.NewRPCClient(*rpcFlag)
 		rpcnode = node
+		fmt.Println("started daemon in rpc mode...")
 	case MODESIM:
 		node := devframework.NewStandaloneSimulation("simnode", devframework.Config{
 			ChainParam: devframework.NewChainParam(devframework.ID_TESTNET2).SetActiveShardNumber(8),
@@ -69,7 +70,7 @@ func main() {
 		node.ShowBalance(node.GenesisAccount)
 		acc0, _ := account.NewAccountFromPrivatekey("111111bgk2j6vZQvzq8tkonDLLXEvLkMwBMn5BoLXLpf631boJnPDGEQMGvA1pRfT71Crr7MM2ShvpkxCBWBL2icG22cXSpcKybKCQmaxa")
 		// acc1, _ := account.GenerateAccountByShard(0, 3, "abc")
-		// fmt.Println("acc0.PaymentAddress", acc0.PaymentAddress)
+		fmt.Println("acc0.PaymentAddress", acc0.PaymentAddress)
 		OTAKey := hex.EncodeToString(acc0.Keyset.OTAKey.GetOTASecretKey().ToBytesS())
 		viewKey := hex.EncodeToString(acc0.Keyset.ReadonlyKey.Rk)
 		importAccount("testacc", acc0.PaymentAddress, viewKey, OTAKey)

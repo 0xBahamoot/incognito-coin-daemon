@@ -22,13 +22,13 @@ type Account struct {
 }
 
 type AccountState struct {
-	Account          *Account
-	Balance          map[string]uint64
-	AvailableBalance map[string]uint64
-	isReady          bool
+	Account *Account
+	Balance map[string]uint64
+	// AvailableBalance map[string]uint64
+	isReady bool
 
-	lock         sync.RWMutex
-	PendingCoins []string //wait for tx to confirm
+	lock sync.RWMutex
+	// PendingCoins []string //wait for tx to confirm
 	//map[tokenID][]coinpubkey
 	AvailableCoins   map[string][]string //avaliable to use
 	EncryptedCoins   map[string][]string //encrypted, dont know whether been used
@@ -44,7 +44,7 @@ var currentAccount string
 func (as *AccountState) init() {
 	as.isReady = false
 	as.Balance = make(map[string]uint64)
-	as.AvailableBalance = make(map[string]uint64)
+	// as.AvailableBalance = make(map[string]uint64)
 	as.AvailableCoins = make(map[string][]string)
 	as.EncryptedCoins = make(map[string][]string)
 	as.AvlCoinsKeyimage = make(map[string]string)
@@ -109,7 +109,12 @@ func initAccountService() error {
 		lastByte := wl.KeySet.PaymentAddress.Pk[len(wl.KeySet.PaymentAddress.Pk)-1]
 		shardID := common.GetShardIDFromLastByte(lastByte)
 		acc.ShardID = shardID
+		acc.Viewkey.Pk = wl.KeySet.PaymentAddress.Pk
 		accState.Account = acc
+		if err := accState.loadCoinState(); err != nil {
+			panic(err)
+		}
+
 		go accState.WatchBalance()
 		accountList[accName] = accState
 	}
@@ -120,8 +125,8 @@ func initAccountService() error {
 
 func scanForNewCoins() {
 	for {
-		if len(accountList) == 0 {
-			time.Sleep(20 * time.Second)
+		if len(accountList) == 0 || rpcnode == nil {
+			time.Sleep(10 * time.Second)
 			continue
 		}
 		accountListLck.RLock()
@@ -130,10 +135,6 @@ func scanForNewCoins() {
 
 		var wg sync.WaitGroup
 		var tokenIDs []string
-		// if tokenID == nil {
-		// 	tokenID = &common.Hash{}
-		// 	tokenID.SetBytes(common.PRVCoinID[:])
-		// }
 		tokenIDs = append(tokenIDs, common.PRVCoinID.String())
 		tokensInfo, err := rpcnode.API_ListPrivacyCustomToken()
 		if err != nil {
@@ -154,6 +155,7 @@ func scanForNewCoins() {
 					coinList, err := GetCoinsByPaymentAddress(a.Account, tokenIDHash)
 					if err != nil {
 						fmt.Println(err)
+						return
 					}
 					if len(coinList) > 0 {
 						coins, err := checkCoinExistAndSave(a.Account.PAstr, tokenID, coinList)
@@ -170,7 +172,7 @@ func scanForNewCoins() {
 					}
 				}
 
-				a.lock.Unlock()
+				a.saveCoinStateAndUnlock()
 				a.isReady = true
 				fmt.Printf("account %s is ready\n", n)
 			}(name, account)
@@ -199,19 +201,19 @@ func getAllBalance() map[string]map[string]uint64 {
 	result := make(map[string]map[string]uint64)
 	for name, account := range accountList {
 		result[name] = make(map[string]uint64)
-		for token, balance := range account.Balance {
-			result[name][token] = balance
-		}
+		result[name] = account.GetBalance()
 	}
 	accountListLck.RUnlock()
 	return result
 }
 
 func (acc *AccountState) GetBalance() map[string]uint64 {
+	acc.lock.RLock()
 	result := make(map[string]uint64)
 	for token, balance := range acc.Balance {
 		result[token] = balance
 	}
+	acc.lock.RUnlock()
 	return result
 }
 
@@ -244,13 +246,28 @@ func (acc *AccountState) UpdateDecryptedCoin(coinList map[string][]string, keyim
 		acc.AvlCoinsKeyimage[k] = v
 	}
 
-	acc.lock.Unlock()
+	acc.saveCoinStateAndUnlock()
 	acc.isReady = true
 	return nil
 }
 
 func (acc *AccountState) WatchBalance() {
+	for {
+		if rpcnode == nil {
+			continue
+		}
+		break
+	}
+
 	tc := time.NewTicker(defaultBalanceWatchInterval)
+	otaKeyset := []byte{}
+	otaKeyset = append(otaKeyset, acc.Account.OTAKey...)
+	otaKeyset = append(otaKeyset, acc.Account.PaymentAddress.OTAPublic...)
+	otakeyStr := hex.EncodeToString(otaKeyset)
+	_, err := rpcnode.API_SubmitKey(otakeyStr)
+	if err != nil {
+		panic(err)
+	}
 	for {
 		select {
 		case <-tc.C:
@@ -304,7 +321,7 @@ func (acc *AccountState) WatchBalance() {
 					acc.Balance[token] = newBalance
 					fmt.Println("newBalance", newBalance, len((acc.CoinsValue)))
 				}
-				acc.lock.Unlock()
+				acc.saveCoinStateAndUnlock()
 			}
 			acc.isReady = true
 			continue
@@ -312,4 +329,44 @@ func (acc *AccountState) WatchBalance() {
 			return
 		}
 	}
+}
+
+func serializeOTAKey(account *Account) string {
+	keyBytes := make([]byte, 0)
+	keyBytes = append(keyBytes, wallet.OTAKeyType)
+	keyBytes = append(keyBytes, byte(len(account.PaymentAddress.Pk))) // set length publicSpend
+	keyBytes = append(keyBytes, account.PaymentAddress.Pk[:]...)      // set publicSpend
+
+	keyBytes = append(keyBytes, byte(len(account.OTAKey))) // set length OTASecretKey
+	keyBytes = append(keyBytes, account.OTAKey[:]...)      // set OTASecretKey
+
+	checkSum := base58.ChecksumFirst4Bytes(keyBytes, true)
+
+	serializedKey := append(keyBytes, checkSum...)
+	return base58.Base58Check{}.NewEncode(serializedKey, common.ZeroByte)
+}
+
+func serializeViewKey(account *Account) string {
+	keyBytes := make([]byte, 0)
+	keyBytes = append(keyBytes, wallet.ReadonlyKeyType)
+
+	keyBytes = append(keyBytes, byte(len(account.Viewkey.Pk))) // set length PaymentAddress
+	keyBytes = append(keyBytes, account.Viewkey.Pk[:]...)      // set PaymentAddress
+
+	keyBytes = append(keyBytes, byte(len(account.Viewkey.Rk))) // set length Skenc
+	keyBytes = append(keyBytes, account.Viewkey.Rk[:]...)      // set Pkenc
+	checkSum := base58.ChecksumFirst4Bytes(keyBytes, true)
+
+	serializedKey := append(keyBytes, checkSum...)
+	return base58.Base58Check{}.NewEncode(serializedKey, common.ZeroByte)
+}
+
+func (acc *AccountState) saveCoinStateAndUnlock() {
+	acc.lock.Unlock()
+	return
+}
+func (acc *AccountState) loadCoinState() error {
+	acc.lock.Lock()
+	acc.lock.Unlock()
+	return nil
 }

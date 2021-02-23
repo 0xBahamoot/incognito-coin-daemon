@@ -19,3 +19,10 @@ type API_account_balance_rep struct {
 	Address string
 	Balance map[string]uint64
 }
+
+type API_import_account_req struct {
+	AccountName    string
+	PaymentAddress string
+	OTAKey         string
+	Viewkey        string
+}

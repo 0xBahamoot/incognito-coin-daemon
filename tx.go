@@ -12,7 +12,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/incognitochain/incognito-chain/blockchain"
 	"github.com/incognitochain/incognito-chain/common"
-	"github.com/incognitochain/incognito-chain/common/base58"
 	"github.com/incognitochain/incognito-chain/dataaccessobject/statedb"
 	"github.com/incognitochain/incognito-chain/incognitokey"
 	"github.com/incognitochain/incognito-chain/metadata"
@@ -214,19 +213,19 @@ func (inst *txCreationInstance) Start() {
 		panic(txerr)
 	} else {
 		request.Data = tx.Hash().Bytes()
-		go func(tx1 metadata.Transaction) {
-			txBytes, _ := json.Marshal(tx)
-			txString := base58.Base58Check{}.Encode(txBytes, common.Base58Version)
-			fmt.Println("tx", txString)
-			err := debugNode.InjectTx(txString, false)
-			if err != nil {
-				panic(err)
-			}
-			for i := 0; i < 10; i++ {
-				debugNode.GenerateBlock().NextRound()
-			}
-			fmt.Println("debugNode.InjectTx success")
-		}(tx)
+		// go func(tx1 metadata.Transaction) {
+		// 	txBytes, _ := json.Marshal(tx)
+		// 	txString := base58.Base58Check{}.Encode(txBytes, common.Base58Version)
+		// 	fmt.Println("tx", txString)
+		// 	err := debugNode.InjectTx(txString, false)
+		// 	if err != nil {
+		// 		panic(err)
+		// 	}
+		// 	for i := 0; i < 10; i++ {
+		// 		debugNode.GenerateBlock().NextRound()
+		// 	}
+		// 	fmt.Println("debugNode.InjectTx success")
+		// }(tx)
 	}
 	requestBytes, _ := json.Marshal(request)
 	err := inst.sendMsgToClient(requestBytes)
@@ -349,11 +348,11 @@ func buildRawTransactionToken(instance *txCreationInstance, txParam *bean.Create
 	// check this IsNonPrivacyNonInput
 	if len(txPrivacyParams.InputCoins) == 0 && txPrivacyParams.Fee == 0 && !txPrivacyParams.HasPrivacy {
 		if txPrivacyParams.SenderSK != nil {
-			if txToken.Tx.Sig, txToken.Tx.SigPubKey, err = signSchnorrHost(txPrivacyParams.SenderSK, txBase.Hash()[:]); err != nil {
+			if txToken.Tx.Sig, txToken.Tx.SigPubKey, err = signSchnorrHost(txPrivacyParams.SenderSK, txBase.Hash()[:], false); err != nil {
 				return nil, err
 			}
 		} else {
-			if txToken.Tx.Sig, txToken.Tx.SigPubKey, err = signSchnorrLedger(instance, txBase.Hash()[:]); err != nil {
+			if txToken.Tx.Sig, txToken.Tx.SigPubKey, err = signSchnorrLedger(instance, txBase.Hash()[:], false); err != nil {
 				return nil, err
 			}
 		}
@@ -442,7 +441,7 @@ func buildRawTransaction(instance *txCreationInstance, params *bean.CreateRawTxP
 	// check this IsNonPrivacyNonInput
 	if len(initializingParams.InputCoins) == 0 && initializingParams.Fee == 0 && !initializingParams.HasPrivacy {
 		if initializingParams.SenderSK != nil {
-			if tx.Sig, tx.SigPubKey, err = signSchnorrHost(initializingParams.SenderSK, tx.Hash()[:]); err != nil {
+			if tx.Sig, tx.SigPubKey, err = signSchnorrHost(initializingParams.SenderSK, tx.Hash()[:], false); err != nil {
 				return nil, err
 			}
 		} else {
@@ -609,11 +608,11 @@ func signMetadata(instance *txCreationInstance, tx *tx_ver2.Tx, debugPrivKey *pr
 	var signature []byte
 	var err error
 	if debugPrivKey != nil {
-		if signature, _, err = signSchnorrHost(debugPrivKey, data); err != nil {
+		if signature, _, err = signSchnorrHost(debugPrivKey, data, true); err != nil {
 			return err
 		}
 	} else {
-		if signature, _, err = signSchnorrLedger(instance, tx.Hash()[:]); err != nil {
+		if signature, _, err = signSchnorrLedger(instance, tx.Hash()[:], true); err != nil {
 			return err
 		}
 	}

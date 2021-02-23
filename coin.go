@@ -150,7 +150,7 @@ func GetCoinsByPaymentAddress(account *Account, tokenID *common.Hash) ([]privacy
 	var err error
 	switch NODEMODE {
 	case MODERPC:
-		coinList, e := rpcnode.API_ListOutputCoins(account.PAstr, tokenID.String())
+		coinList, e := rpcnode.API_ListOutputCoins(account.PAstr, serializeViewKey(account), serializeOTAKey(account), tokenID.String())
 		if e != nil {
 			return nil, e
 		}

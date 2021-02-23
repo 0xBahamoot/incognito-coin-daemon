@@ -41,10 +41,28 @@ func getStateHandler(w http.ResponseWriter, r *http.Request) {
 
 func importAccountHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	if r.Method != "GET" {
+	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	var req API_import_account_req
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err = importAccount(req.AccountName, req.PaymentAddress, req.Viewkey, req.OTAKey)
+	if err != nil {
+		http.Error(w, "can't import account. error: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(200)
+	_, err = w.Write([]byte("success"))
+	if err != nil {
+		panic(err)
+	}
+	return
 }
 
 func removeAccountHandler(w http.ResponseWriter, r *http.Request) {
@@ -93,6 +111,10 @@ func getCoinsToDecryptHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	accState.lock.RUnlock()
+	if len(encryptCoins) == 0 {
+		http.Error(w, "no coin needed to decrypt", http.StatusBadRequest)
+		return
+	}
 	coinsBytes, err := json.Marshal(encryptCoins)
 	if err != nil {
 		http.Error(w, "Unexpected error", http.StatusInternalServerError)
