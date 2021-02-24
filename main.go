@@ -73,7 +73,7 @@ func main() {
 		fmt.Println("acc0.PaymentAddress", acc0.PaymentAddress)
 		OTAKey := hex.EncodeToString(acc0.Keyset.OTAKey.GetOTASecretKey().ToBytesS())
 		viewKey := hex.EncodeToString(acc0.Keyset.ReadonlyKey.Rk)
-		importAccount("testacc", acc0.PaymentAddress, viewKey, OTAKey)
+		importAccount("testacc", acc0.PaymentAddress, viewKey, OTAKey, 0)
 
 		node.Pause()
 		node.SendPRV(node.GenesisAccount, acc0, 2750000000000)

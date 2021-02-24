@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/incognitochain/incognito-chain/common"
+	"github.com/incognitochain/incognito-chain/incognitokey"
 	"github.com/incognitochain/incognito-chain/metadata"
 	"github.com/incognitochain/incognito-chain/privacy"
 	"github.com/incognitochain/incognito-chain/privacy/coin"
@@ -143,17 +144,22 @@ func ExtractCoinH(coins []coin.PlainCoin, OTAKey key.PrivateOTAKey) ([][]byte, e
 
 func GetCoinsByPaymentAddress(account *Account, tokenID *common.Hash) ([]privacy.PlainCoin, error) {
 	var outcoinList []privacy.PlainCoin
-	if tokenID == nil {
-		tokenID = &common.Hash{}
-		tokenID.SetBytes(common.PRVCoinID[:])
-	}
+	// if tokenID == nil {
+	// 	tokenID = &common.Hash{}
+	// 	tokenID.SetBytes(common.PRVCoinID[:])
+	// }
+
+	var keySet incognitokey.KeySet
+	keySet.ReadonlyKey = account.Viewkey
 	var err error
 	switch NODEMODE {
 	case MODERPC:
-		coinList, e := rpcnode.API_ListOutputCoins(account.PAstr, serializeViewKey(account), serializeOTAKey(account), tokenID.String())
+		// fmt.Println(account.PAstr, serializeViewKey(account), serializeOTAKey(account), tokenID.String())
+		coinList, e := rpcnode.API_ListOutputCoins(account.PAstr, "", serializeOTAKey(account), tokenID.String(), account.BeaconHeight)
 		if e != nil {
 			return nil, e
 		}
+		fmt.Println("len(coinList)", len(coinList.Outputs), tokenID.String())
 		for _, out := range coinList.Outputs {
 			for _, c := range out {
 				cV2, idx, err := jsonresult.NewCoinFromJsonOutCoin(c)
@@ -162,7 +168,11 @@ func GetCoinsByPaymentAddress(account *Account, tokenID *common.Hash) ([]privacy
 					panic(err)
 				}
 				cv2 := cV2.(*coin.CoinV2)
-				outcoinList = append(outcoinList, cv2)
+				result, err := cv2.Decrypt(&keySet)
+				if err != nil {
+					return nil, err
+				}
+				outcoinList = append(outcoinList, result)
 			}
 		}
 	case MODELIGHT, MODESIM:
@@ -201,10 +211,10 @@ func chooseCoinsToSpendForAccount(accountState *AccountState, tokenID string, pa
 	}
 	accountState.lock.RLock()
 	defer accountState.lock.RUnlock()
-	if _, ok := accountState.AvailableCoins[tokenID]; !ok {
+	if _, ok := accountState.coinState.AvailableCoins[tokenID]; !ok {
 		return nil, 0, errors.New("not enough token coins")
 	}
-	coinsPubkey := append([]string{}, accountState.AvailableCoins[tokenID]...)
+	coinsPubkey := append([]string{}, accountState.coinState.AvailableCoins[tokenID]...)
 	plainCoins, err := getCoinsByCoinPubkey(accountState.Account.PAstr, tokenID, coinsPubkey)
 	if err != nil {
 		return nil, 0, err
@@ -228,7 +238,7 @@ func chooseCoinsToSpendForAccount(accountState *AccountState, tokenID string, pa
 		})
 	}
 	for _, coin := range candidatePlainCoins {
-		kmHex := accountState.AvlCoinsKeyimage[hex.EncodeToString(coin.GetPublicKey().ToBytesS())]
+		kmHex := accountState.coinState.AvlCoinsKeyimage[hex.EncodeToString(coin.GetPublicKey().ToBytesS())]
 		kmBytes, _ := hex.DecodeString(kmHex)
 		kmPoint := operation.Point{}
 		_, err := kmPoint.FromBytesS(kmBytes)

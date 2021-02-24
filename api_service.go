@@ -52,7 +52,7 @@ func importAccountHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = importAccount(req.AccountName, req.PaymentAddress, req.Viewkey, req.OTAKey)
+	err = importAccount(req.AccountName, req.PaymentAddress, req.Viewkey, req.OTAKey, req.BeaconHeight)
 	if err != nil {
 		http.Error(w, "can't import account. error: "+err.Error(), http.StatusBadRequest)
 		return
@@ -86,14 +86,15 @@ func getCoinsToDecryptHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "account name isn't exist", http.StatusBadRequest)
 		return
 	}
-	if !accountList[accName].isReady {
-		http.Error(w, "account not ready", http.StatusBadRequest)
-		return
-	}
+	// if !accountList[accName].isReady {
+	// 	http.Error(w, "account not ready", http.StatusBadRequest)
+	// 	return
+	// }
 	accState := accountList[accName]
 	accState.lock.RLock()
 	encryptCoins := make(map[string]map[string]string)
-	for tokenID, coinsPubkey := range accState.EncryptedCoins {
+	fmt.Println("EncryptedCoins", accState.coinState.EncryptedCoins)
+	for tokenID, coinsPubkey := range accState.coinState.EncryptedCoins {
 		if len(coinsPubkey) > 0 {
 			fmt.Println("len(coinsPubkey)", len(coinsPubkey))
 			coins, err := getCoinsByCoinPubkey(accState.Account.PAstr, tokenID, coinsPubkey)
@@ -231,10 +232,10 @@ func getBalanceHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "account name isn't exist", http.StatusBadRequest)
 		return
 	}
-	if !accountState.isReady {
-		http.Error(w, "account not ready", http.StatusBadRequest)
-		return
-	}
+	// if !accountState.isReady {
+	// 	http.Error(w, "account not ready", http.StatusBadRequest)
+	// 	return
+	// }
 	var rep API_account_balance_rep
 	rep.Address = accountState.Account.PAstr
 	rep.Balance = accountState.Balance

@@ -28,3 +28,8 @@ const (
 	MainNetStakingAmountShard = 1750000000000 // 1750 PRV = 1750 * 10^9 nano PRV
 
 )
+
+var (
+	DB_ACCOUNTKEY   = []byte("account-")
+	DB_COINSTATEKEY = []byte("coinstate-")
+)

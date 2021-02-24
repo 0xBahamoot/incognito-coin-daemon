@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 
@@ -47,7 +48,8 @@ func saveAccount(name string, account *Account) error {
 	accountBytes = append(accountBytes, account.Viewkey.Rk...)
 	accountBytes = append(accountBytes, account.OTAKey...)
 	accountBytes = append(accountBytes, []byte(account.PAstr)...)
-	err := accountDB.Put([]byte(name), accountBytes)
+	key := append(DB_ACCOUNTKEY, []byte(name)...)
+	err := accountDB.Put(key, accountBytes)
 	if err != nil {
 		return err
 	}
@@ -55,7 +57,8 @@ func saveAccount(name string, account *Account) error {
 }
 
 func deleteAccount(name string) error {
-	err := accountDB.Delete([]byte(name))
+	key := append(DB_ACCOUNTKEY, []byte(name)...)
+	err := accountDB.Delete(key)
 	if err != nil {
 		return err
 	}
@@ -65,20 +68,55 @@ func deleteAccount(name string) error {
 func loadAccountsFromDB() (map[string]*Account, error) {
 	var result map[string]*Account
 	result = make(map[string]*Account)
-	iter := accountDB.NewIterator()
+	iter := accountDB.NewIteratorWithPrefix(DB_ACCOUNTKEY)
 	for iter.Next() {
 		acc := new(Account)
 		v := iter.Value()
 		acc.Viewkey.Rk = v[:32]
 		acc.OTAKey = v[32:64]
 		acc.PAstr = string(v[64:])
-		result[string(iter.Key())] = acc
+		result[string(iter.Key()[len(DB_ACCOUNTKEY):])] = acc
 	}
 	iter.Release()
 	err := iter.Error()
 	return result, err
 }
 
+func saveAccountCoinState(paymentAddr string, coinState AccountCoinState) error {
+	coinStateBytes, err := json.Marshal(coinState)
+	if err != nil {
+		return err
+	}
+	key := append(DB_COINSTATEKEY, []byte(paymentAddr)...)
+	err = accountDB.Put(key, coinStateBytes)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func loadAccountCoinState(paymentAddr string) (*AccountCoinState, error) {
+	var coinState AccountCoinState
+	key := append(DB_COINSTATEKEY, []byte(paymentAddr)...)
+	coinStateBytes, err := accountDB.Get(key)
+	if err != nil {
+		return nil, err
+	}
+	err = json.Unmarshal(coinStateBytes, &coinState)
+	if err != nil {
+		return nil, err
+	}
+	return &coinState, nil
+}
+
+func deleteAccountCoinState(paymentAddr string) error {
+	key := append(DB_COINSTATEKEY, []byte(paymentAddr)...)
+	err := accountDB.Delete(key)
+	if err != nil {
+		return err
+	}
+	return nil
+}
 func saveKeyImages(keyImages map[string]string, tokenID string, paymentAddr string) error {
 	batch := keyimageDB.NewBatch()
 	prefix := coinprefix(paymentAddr, tokenID)

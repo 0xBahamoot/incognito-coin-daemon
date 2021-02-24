@@ -25,4 +25,5 @@ type API_import_account_req struct {
 	PaymentAddress string
 	OTAKey         string
 	Viewkey        string
+	BeaconHeight   uint64
 }
