@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"path/filepath"
 
 	"github.com/incognitochain/incognito-chain/incdb"
@@ -245,7 +246,7 @@ func coinprefix(paymentAddr string, tokenID string) []byte {
 	return result[24:]
 }
 
-func checkCoinExistAndSave(paymentAddr string, tokenID string, coins []coin.PlainCoin) ([]string, error) {
+func checkCoinExistAndSave(paymentAddr string, tokenID string, coins []coin.PlainCoin, coinIndices map[string]*big.Int) ([]string, error) {
 	var newCoins []string //[]coinPubkey
 	batch := coinDB.NewBatch()
 	prefix := coinprefix(paymentAddr, tokenID)
@@ -262,6 +263,12 @@ func checkCoinExistAndSave(paymentAddr string, tokenID string, coins []coin.Plai
 			if err := batch.Put(keyBytes, value); err != nil {
 				return nil, err
 			}
+			if NODEMODE == MODERPC {
+				keyIdx := append(DB_COININDEXKEY, []byte(key)...)
+				if err := batch.Put(keyIdx, coinIndices[key].Bytes()); err != nil {
+					return nil, err
+				}
+			}
 			newCoins = append(newCoins, key)
 		}
 	}
@@ -270,4 +277,14 @@ func checkCoinExistAndSave(paymentAddr string, tokenID string, coins []coin.Plai
 		return nil, err
 	}
 	return newCoins, nil
+}
+
+func getCoinIndexViaCoinDB(coinPubkey string) (*big.Int, error) {
+	var idx big.Int
+	key := append(DB_COININDEXKEY, []byte(coinPubkey)...)
+	value, err := coinDB.Get(key)
+	if err != nil {
+		return nil, err
+	}
+	return idx.SetBytes(value), nil
 }

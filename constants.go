@@ -32,4 +32,5 @@ const (
 var (
 	DB_ACCOUNTKEY   = []byte("account-")
 	DB_COINSTATEKEY = []byte("coinstate-")
+	DB_COININDEXKEY = []byte("coinidx-")
 )

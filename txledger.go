@@ -412,26 +412,26 @@ func RequestLedgerCalculateR(inst *txCreationInstance, coinLength int, cPi *oper
 	return result, nil
 }
 
-func GetRandomCommitmentsAndPublicKeys(shardID byte, tokenID string, lenDecoy int) (map[string]interface{}, error) {
+func GetRandomCommitmentsAndPublicKeys(shardID byte, tokenID string, lenDecoy int) (cmtIndices []uint64, commitments []*privacy.Point, publicKeys []*privacy.Point, assetTags []*privacy.Point, err error) {
 	if lenDecoy == 0 {
-		return nil, errors.New("no input coin to retrieve random commitments")
+		return nil, nil, nil, nil, errors.New("no input coin to retrieve random commitments")
 	}
 	// var randomCmtAndPk *jsonresult.RandomCommitmentAndPublicKeyResult
 	randomCmtAndPk, err := rpcnode.API_RandomCommitmentsAndPublicKeys(shardID, lenDecoy, tokenID)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	commitmentList := make([]*privacy.Point, 0)
 	for _, commitmentStr := range randomCmtAndPk.Commitments {
 		cmtBytes, _, err := base58.Base58Check{}.Decode(commitmentStr)
 		if err != nil {
-			return nil, errors.New(fmt.Sprintf("cannot decode commitment %v: %v", commitmentStr, err))
+			return nil, nil, nil, nil, fmt.Errorf("cannot decode commitment %v: %v", commitmentStr, err)
 		}
 
 		commitment, err := new(privacy.Point).FromBytesS(cmtBytes)
 		if err != nil {
-			return nil, errors.New(fmt.Sprintf("cannot parse commitment %v: %v", cmtBytes, err))
+			return nil, nil, nil, nil, fmt.Errorf("cannot parse commitment %v: %v", cmtBytes, err)
 		}
 
 		commitmentList = append(commitmentList, commitment)
@@ -441,12 +441,12 @@ func GetRandomCommitmentsAndPublicKeys(shardID byte, tokenID string, lenDecoy in
 	for _, pubkeyStr := range randomCmtAndPk.PublicKeys {
 		pkBytes, _, err := base58.Base58Check{}.Decode(pubkeyStr)
 		if err != nil {
-			return nil, errors.New(fmt.Sprintf("cannot decode public key %v: %v", pubkeyStr, err))
+			return nil, nil, nil, nil, fmt.Errorf("cannot decode public key %v: %v", pubkeyStr, err)
 		}
 
 		pk, err := new(privacy.Point).FromBytesS(pkBytes)
 		if err != nil {
-			return nil, errors.New(fmt.Sprintf("cannot parse public key %v: %v", pkBytes, err))
+			return nil, nil, nil, nil, fmt.Errorf("cannot parse public key %v: %v", pkBytes, err)
 		}
 
 		pkList = append(pkList, pk)
@@ -456,22 +456,16 @@ func GetRandomCommitmentsAndPublicKeys(shardID byte, tokenID string, lenDecoy in
 	for _, assetStr := range randomCmtAndPk.AssetTags {
 		assetBytes, _, err := base58.Base58Check{}.Decode(assetStr)
 		if err != nil {
-			return nil, errors.New(fmt.Sprintf("cannot decode assetTag %v: %v", assetStr, err))
+			return nil, nil, nil, nil, fmt.Errorf("cannot decode assetTag %v: %v", assetStr, err)
 		}
 
 		assetTag, err := new(privacy.Point).FromBytesS(assetBytes)
 		if err != nil {
-			return nil, errors.New(fmt.Sprintf("cannot parse assetTag %v: %v", assetBytes, err))
+			return nil, nil, nil, nil, fmt.Errorf("cannot parse assetTag %v: %v", assetBytes, err)
 		}
 
 		assetTagList = append(assetTagList, assetTag)
 	}
 
-	result := make(map[string]interface{})
-	result[utils.CommitmentIndices] = randomCmtAndPk.CommitmentIndices
-	result[utils.Commitments] = commitmentList
-	result[utils.PublicKeys] = pkList
-	result[utils.AssetTags] = assetTagList
-
-	return result, nil
+	return randomCmtAndPk.CommitmentIndices, commitmentList, pkList, assetTagList, nil
 }

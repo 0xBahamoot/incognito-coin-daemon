@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
 	"sort"
 
 	"github.com/incognitochain/incognito-chain/common"
@@ -142,43 +143,42 @@ func ExtractCoinH(coins []coin.PlainCoin, OTAKey key.PrivateOTAKey) ([][]byte, e
 	return result, nil
 }
 
-func GetCoinsByPaymentAddress(account *Account, tokenID *common.Hash) ([]privacy.PlainCoin, error) {
+func GetCoinsByPaymentAddress(account *Account, tokenID *common.Hash) ([]privacy.PlainCoin, map[string]*big.Int, error) {
 	var outcoinList []privacy.PlainCoin
-	// if tokenID == nil {
-	// 	tokenID = &common.Hash{}
-	// 	tokenID.SetBytes(common.PRVCoinID[:])
-	// }
+	var coinIndices map[string]*big.Int
 
 	var keySet incognitokey.KeySet
 	keySet.ReadonlyKey = account.Viewkey
 	var err error
 	switch NODEMODE {
 	case MODERPC:
-		// fmt.Println(account.PAstr, serializeViewKey(account), serializeOTAKey(account), tokenID.String())
+		coinIndices = make(map[string]*big.Int)
 		coinList, e := rpcnode.API_ListOutputCoins(account.PAstr, "", serializeOTAKey(account), tokenID.String(), account.BeaconHeight)
 		if e != nil {
-			return nil, e
+			return nil, nil, e
 		}
 		fmt.Println("len(coinList)", len(coinList.Outputs), tokenID.String())
 		for _, out := range coinList.Outputs {
 			for _, c := range out {
 				cV2, idx, err := jsonresult.NewCoinFromJsonOutCoin(c)
-				_ = idx
 				if err != nil {
 					panic(err)
 				}
+
 				cv2 := cV2.(*coin.CoinV2)
 				result, err := cv2.Decrypt(&keySet)
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				outcoinList = append(outcoinList, result)
+				key := hex.EncodeToString(result.GetPublicKey().ToBytesS())
+				coinIndices[key] = idx
 			}
 		}
 	case MODELIGHT, MODESIM:
 		wl, e := wallet.Base58CheckDeserialize(account.PAstr)
 		if e != nil {
-			return nil, e
+			return nil, nil, e
 		}
 		lastByte := wl.KeySet.PaymentAddress.Pk[len(wl.KeySet.PaymentAddress.Pk)-1]
 		shardIDSender := common.GetShardIDFromLastByte(lastByte)
@@ -189,7 +189,7 @@ func GetCoinsByPaymentAddress(account *Account, tokenID *common.Hash) ([]privacy
 		coinList, _, _, _ := localnode.GetBlockchain().GetListDecryptedOutputCoinsVer2ByKeyset(&wl.KeySet, shardIDSender, tokenID, 0)
 		outcoinList = append(outcoinList, coinList...)
 	}
-	return outcoinList, err
+	return outcoinList, coinIndices, err
 }
 
 //----------------------------------------

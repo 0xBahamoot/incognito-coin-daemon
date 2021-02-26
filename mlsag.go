@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -28,30 +29,51 @@ func generateMlsagRingWithIndexes(inputCoins []privacy.PlainCoin, outputCoins []
 	indexes := make([][]*big.Int, ringSize)
 	ring := make([][]*privacy.Point, ringSize)
 	var commitmentToZero *privacy.Point
-	for i := 0; i < ringSize; i += 1 {
+	var cmtIndices []uint64
+	var commitments []*privacy.Point
+	var publicKeys []*privacy.Point
+	// var assetTags []*privacy.Point
+	if NODEMODE == MODERPC {
+		cmtIndices, commitments, publicKeys, _, err = GetRandomCommitmentsAndPublicKeys(shardID, params.TokenID.String(), len(inputCoins))
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	currentIndex := 0
+	for i := 0; i < ringSize; i++ {
 		sumInputs := new(privacy.Point).Identity()
 		sumInputs.Sub(sumInputs, sumOutputsWithFee)
 
 		row := make([]*privacy.Point, len(inputCoins))
 		rowIndexes := make([]*big.Int, len(inputCoins))
 		if i == pi {
-			for j := 0; j < len(inputCoins); j += 1 {
+			for j := 0; j < len(inputCoins); j++ {
 				row[j] = inputCoins[j].GetPublicKey()
 				publicKeyBytes := inputCoins[j].GetPublicKey().ToBytesS()
-				if rowIndexes[j], err = statedb.GetOTACoinIndex(params.StateDB, *params.TokenID, publicKeyBytes); err != nil {
-					fmt.Errorf("Getting commitment index error %v ", err)
-					return nil, nil, nil, err
+				if NODEMODE == MODERPC {
+					if rowIndexes[j], err = getCoinIndexViaCoinDB(hex.EncodeToString(inputCoins[j].GetPublicKey().ToBytesS())); err != nil {
+						fmt.Errorf("Getting commitment index error %v ", err)
+						return nil, nil, nil, err
+					}
+				} else {
+					if rowIndexes[j], err = statedb.GetOTACoinIndex(params.StateDB, *params.TokenID, publicKeyBytes); err != nil {
+						fmt.Errorf("Getting commitment index error %v ", err)
+						return nil, nil, nil, err
+					}
 				}
 				sumInputs.Add(sumInputs, inputCoins[j].GetCommitment())
 			}
 		} else {
 			if NODEMODE == MODERPC {
-				_, err := GetRandomCommitmentsAndPublicKeys(shardID, params.TokenID.String(), len(inputCoins))
-				if err != nil {
-					return nil, nil, nil, err
+				for j := 0; j < len(inputCoins); j++ {
+					rowIndexes[j] = new(big.Int).SetUint64(cmtIndices[currentIndex])
+					row[j] = publicKeys[currentIndex]
+					sumInputs.Add(sumInputs, commitments[currentIndex])
+
+					currentIndex++
 				}
 			} else {
-				for j := 0; j < len(inputCoins); j += 1 {
+				for j := 0; j < len(inputCoins); j++ {
 					rowIndexes[j], _ = common.RandBigIntMaxRange(lenOTA)
 					coinBytes, err := statedb.GetOTACoinByIndex(params.StateDB, *params.TokenID, rowIndexes[j].Uint64(), shardID)
 					if err != nil {

@@ -166,13 +166,13 @@ func scanForNewCoins() {
 					go func(tID string) {
 						defer wg2.Done()
 						tokenIDHash, _ := common.Hash{}.NewHashFromStr(tID)
-						coinList, err := GetCoinsByPaymentAddress(a.Account, tokenIDHash)
+						coinList, coinIndices, err := GetCoinsByPaymentAddress(a.Account, tokenIDHash)
 						if err != nil {
 							fmt.Println(err)
 							return
 						}
 						if len(coinList) > 0 {
-							coins, err := checkCoinExistAndSave(a.Account.PAstr, tID, coinList)
+							coins, err := checkCoinExistAndSave(a.Account.PAstr, tID, coinList, coinIndices)
 							if err != nil {
 								panic(err)
 							}
