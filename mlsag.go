@@ -39,26 +39,33 @@ func generateMlsagRingWithIndexes(inputCoins []privacy.PlainCoin, outputCoins []
 				row[j] = inputCoins[j].GetPublicKey()
 				publicKeyBytes := inputCoins[j].GetPublicKey().ToBytesS()
 				if rowIndexes[j], err = statedb.GetOTACoinIndex(params.StateDB, *params.TokenID, publicKeyBytes); err != nil {
-					utils.Logger.Log.Errorf("Getting commitment index error %v ", err)
+					fmt.Errorf("Getting commitment index error %v ", err)
 					return nil, nil, nil, err
 				}
 				sumInputs.Add(sumInputs, inputCoins[j].GetCommitment())
 			}
 		} else {
-			for j := 0; j < len(inputCoins); j += 1 {
-				rowIndexes[j], _ = common.RandBigIntMaxRange(lenOTA)
-				coinBytes, err := statedb.GetOTACoinByIndex(params.StateDB, *params.TokenID, rowIndexes[j].Uint64(), shardID)
+			if NODEMODE == MODERPC {
+				_, err := GetRandomCommitmentsAndPublicKeys(shardID, params.TokenID.String(), len(inputCoins))
 				if err != nil {
-					utils.Logger.Log.Errorf("Get coinv2 by index error %v ", err)
 					return nil, nil, nil, err
 				}
-				coinDB := new(privacy.CoinV2)
-				if err := coinDB.SetBytes(coinBytes); err != nil {
-					utils.Logger.Log.Errorf("Cannot parse coinv2 byte error %v ", err)
-					return nil, nil, nil, err
+			} else {
+				for j := 0; j < len(inputCoins); j += 1 {
+					rowIndexes[j], _ = common.RandBigIntMaxRange(lenOTA)
+					coinBytes, err := statedb.GetOTACoinByIndex(params.StateDB, *params.TokenID, rowIndexes[j].Uint64(), shardID)
+					if err != nil {
+						fmt.Errorf("Get coinv2 by index error %v ", err)
+						return nil, nil, nil, err
+					}
+					coinDB := new(privacy.CoinV2)
+					if err := coinDB.SetBytes(coinBytes); err != nil {
+						fmt.Errorf("Cannot parse coinv2 byte error %v ", err)
+						return nil, nil, nil, err
+					}
+					row[j] = coinDB.GetPublicKey()
+					sumInputs.Add(sumInputs, coinDB.GetCommitment())
 				}
-				row[j] = coinDB.GetPublicKey()
-				sumInputs.Add(sumInputs, coinDB.GetCommitment())
 			}
 		}
 		row = append(row, sumInputs)
@@ -181,10 +188,10 @@ func generateMlsagRingWithIndexesCA(inputCoins []privacy.PlainCoin, outputCoins 
 // m := len(this.privateKeys)
 // n := len(this.R.keys)
 func createRandomChallenges(m, n, pi int) (alpha []*operation.Scalar, r [][]*operation.Scalar) {
-	alpha = make([]*operation.Scalar, m)
-	for i := 0; i < m; i += 1 {
-		alpha[i] = operation.RandomScalar()
-	}
+	// alpha = make([]*operation.Scalar, m)
+	// for i := 0; i < m; i += 1 {
+	// 	alpha[i] = operation.RandomScalar()
+	// }
 	r = make([][]*operation.Scalar, n)
 	for i := 0; i < n; i += 1 {
 		r[i] = make([]*operation.Scalar, m)
