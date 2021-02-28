@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/incognitochain/incognito-chain/blockchain"
 	"github.com/incognitochain/incognito-chain/common"
+	"github.com/incognitochain/incognito-chain/common/base58"
 	"github.com/incognitochain/incognito-chain/dataaccessobject/statedb"
 	"github.com/incognitochain/incognito-chain/incognitokey"
 	"github.com/incognitochain/incognito-chain/metadata"
@@ -214,8 +215,7 @@ func (inst *txCreationInstance) Start() {
 	} else {
 		request.Data = tx.Hash().Bytes()
 		// go func(tx1 metadata.Transaction) {
-		// 	txBytes, _ := json.Marshal(tx)
-		// 	txString := base58.Base58Check{}.Encode(txBytes, common.Base58Version)
+
 		// 	fmt.Println("tx", txString)
 		// 	err := debugNode.InjectTx(txString, false)
 		// 	if err != nil {
@@ -226,6 +226,16 @@ func (inst *txCreationInstance) Start() {
 		// 	}
 		// 	fmt.Println("debugNode.InjectTx success")
 		// }(tx)
+
+		go func(tx1 metadata.Transaction) {
+			txBytes, _ := json.Marshal(tx)
+			txString := base58.Base58Check{}.Encode(txBytes, common.Base58Version)
+			result, err := rpcnode.API_SendRawTransaction(txString)
+			if err != nil {
+				panic(err)
+			}
+			fmt.Println("txresult", result)
+		}(tx)
 	}
 	requestBytes, _ := json.Marshal(request)
 	err := inst.sendMsgToClient(requestBytes)

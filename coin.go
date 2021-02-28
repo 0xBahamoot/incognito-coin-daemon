@@ -157,7 +157,7 @@ func GetCoinsByPaymentAddress(account *Account, tokenID *common.Hash) ([]privacy
 		if e != nil {
 			return nil, nil, e
 		}
-		fmt.Println("len(coinList)", len(coinList.Outputs), tokenID.String())
+		fmt.Println("len(coinList)", tokenID.String(), coinList.Outputs)
 		for _, out := range coinList.Outputs {
 			for _, c := range out {
 				cV2, idx, err := jsonresult.NewCoinFromJsonOutCoin(c)

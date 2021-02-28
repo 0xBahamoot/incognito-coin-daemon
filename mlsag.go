@@ -16,11 +16,17 @@ import (
 )
 
 func generateMlsagRingWithIndexes(inputCoins []privacy.PlainCoin, outputCoins []*privacy.CoinV2, params *tx_generic.TxPrivacyInitParams, pi int, shardID byte, ringSize int) (*mlsag.Ring, [][]*big.Int, *privacy.Point, error) {
-	lenOTA, err := statedb.GetOTACoinLength(params.StateDB, *params.TokenID, shardID)
-	if err != nil || lenOTA == nil {
-		utils.Logger.Log.Errorf("Getting length of commitment error, either database length ota is empty or has error, error = %v", err)
-		return nil, nil, nil, err
+	var lenOTA *big.Int
+	var err error
+	if NODEMODE != MODERPC {
+		lenOTA, err = statedb.GetOTACoinLength(params.StateDB, *params.TokenID, shardID)
+		if err != nil || lenOTA == nil {
+			utils.Logger.Log.Errorf("Getting length of commitment error, either database length ota is empty or has error, error = %v", err)
+			return nil, nil, nil, err
+		}
+
 	}
+
 	outputCoinsAsGeneric := make([]privacy.Coin, len(outputCoins))
 	for i := 0; i < len(outputCoins); i++ {
 		outputCoinsAsGeneric[i] = outputCoins[i]
@@ -34,7 +40,7 @@ func generateMlsagRingWithIndexes(inputCoins []privacy.PlainCoin, outputCoins []
 	var publicKeys []*privacy.Point
 	// var assetTags []*privacy.Point
 	if NODEMODE == MODERPC {
-		cmtIndices, commitments, publicKeys, _, err = GetRandomCommitmentsAndPublicKeys(shardID, params.TokenID.String(), len(inputCoins))
+		cmtIndices, commitments, publicKeys, _, err = GetRandomCommitmentsAndPublicKeys(shardID, params.TokenID.String(), len(inputCoins)*(privacy.RingSize-1))
 		if err != nil {
 			return nil, nil, nil, err
 		}
