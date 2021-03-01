@@ -143,9 +143,10 @@ func ExtractCoinH(coins []coin.PlainCoin, OTAKey key.PrivateOTAKey) ([][]byte, e
 	return result, nil
 }
 
-func GetCoinsByPaymentAddress(account *Account, tokenID *common.Hash) ([]privacy.PlainCoin, map[string]*big.Int, error) {
+func GetCoinsByPaymentAddress(account *Account, lastSyncedHeight uint64, tokenID *common.Hash) ([]privacy.PlainCoin, map[string]*big.Int, uint64, error) {
 	var outcoinList []privacy.PlainCoin
 	var coinIndices map[string]*big.Int
+	var newSyncedHeight uint64
 
 	var keySet incognitokey.KeySet
 	keySet.ReadonlyKey = account.Viewkey
@@ -153,32 +154,50 @@ func GetCoinsByPaymentAddress(account *Account, tokenID *common.Hash) ([]privacy
 	switch NODEMODE {
 	case MODERPC:
 		coinIndices = make(map[string]*big.Int)
-		coinList, e := rpcnode.API_ListOutputCoins(account.PAstr, "", serializeOTAKey(account), tokenID.String(), account.BeaconHeight)
-		if e != nil {
-			return nil, nil, e
+		BCinfo, err := rpcnode.API_GetBlockChainInfo()
+		if err != nil {
+			return nil, nil, 0, err
 		}
-		fmt.Println("len(coinList)", tokenID.String(), coinList.Outputs)
-		for _, out := range coinList.Outputs {
-			for _, c := range out {
-				cV2, idx, err := jsonresult.NewCoinFromJsonOutCoin(c)
-				if err != nil {
-					panic(err)
+		bestHeight := BCinfo.BestBlocks[-1].Height
+		currentHeight := lastSyncedHeight
+		if currentHeight != bestHeight {
+			for {
+				if currentHeight > bestHeight {
+					currentHeight = bestHeight
 				}
+				coinList, e := rpcnode.API_ListOutputCoins(account.PAstr, "", serializeOTAKey(account), tokenID.String(), currentHeight)
+				if e != nil {
+					return nil, nil, 0, e
+				}
+				for _, out := range coinList.Outputs {
+					fmt.Println("len(coinList)", currentHeight, tokenID.String(), len(out))
+					for _, c := range out {
+						cV2, idx, err := jsonresult.NewCoinFromJsonOutCoin(c)
+						if err != nil {
+							panic(err)
+						}
 
-				cv2 := cV2.(*coin.CoinV2)
-				result, err := cv2.Decrypt(&keySet)
-				if err != nil {
-					return nil, nil, err
+						cv2 := cV2.(*coin.CoinV2)
+						result, err := cv2.Decrypt(&keySet)
+						if err != nil {
+							return nil, nil, 0, err
+						}
+						outcoinList = append(outcoinList, result)
+						key := hex.EncodeToString(result.GetPublicKey().ToBytesS())
+						coinIndices[key] = idx
+					}
 				}
-				outcoinList = append(outcoinList, result)
-				key := hex.EncodeToString(result.GetPublicKey().ToBytesS())
-				coinIndices[key] = idx
+				if currentHeight == bestHeight {
+					break
+				}
+				currentHeight = currentHeight + 2160
 			}
 		}
+		newSyncedHeight = currentHeight
 	case MODELIGHT, MODESIM:
 		wl, e := wallet.Base58CheckDeserialize(account.PAstr)
 		if e != nil {
-			return nil, nil, e
+			return nil, nil, 0, e
 		}
 		lastByte := wl.KeySet.PaymentAddress.Pk[len(wl.KeySet.PaymentAddress.Pk)-1]
 		shardIDSender := common.GetShardIDFromLastByte(lastByte)
@@ -189,7 +208,7 @@ func GetCoinsByPaymentAddress(account *Account, tokenID *common.Hash) ([]privacy
 		coinList, _, _, _ := localnode.GetBlockchain().GetListDecryptedOutputCoinsVer2ByKeyset(&wl.KeySet, shardIDSender, tokenID, 0)
 		outcoinList = append(outcoinList, coinList...)
 	}
-	return outcoinList, coinIndices, err
+	return outcoinList, coinIndices, newSyncedHeight, err
 }
 
 //----------------------------------------

@@ -45,12 +45,16 @@ func initcoinDB(datadir string) error {
 }
 
 func saveAccount(name string, account *Account) error {
-	accountBytes := []byte{}
-	accountBytes = append(accountBytes, account.Viewkey.Rk...)
-	accountBytes = append(accountBytes, account.OTAKey...)
-	accountBytes = append(accountBytes, []byte(account.PAstr)...)
+	// accountBytes := []byte{}
+	// accountBytes = append(accountBytes, account.Viewkey.Rk...)
+	// accountBytes = append(accountBytes, account.OTAKey...)
+	// accountBytes = append(accountBytes, []byte(account.PAstr)...)
+	accountBytes, err := json.Marshal(account)
+	if err != nil {
+		return err
+	}
 	key := append(DB_ACCOUNTKEY, []byte(name)...)
-	err := accountDB.Put(key, accountBytes)
+	err = accountDB.Put(key, accountBytes)
 	if err != nil {
 		return err
 	}
@@ -73,9 +77,13 @@ func loadAccountsFromDB() (map[string]*Account, error) {
 	for iter.Next() {
 		acc := new(Account)
 		v := iter.Value()
-		acc.Viewkey.Rk = v[:32]
-		acc.OTAKey = v[32:64]
-		acc.PAstr = string(v[64:])
+		err := json.Unmarshal(v, &acc)
+		if err != nil {
+			return nil, err
+		}
+		// acc.Viewkey.Rk = v[:32]
+		// acc.OTAKey = v[32:64]
+		// acc.PAstr = string(v[64:])
 		result[string(iter.Key()[len(DB_ACCOUNTKEY):])] = acc
 	}
 	iter.Release()

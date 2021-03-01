@@ -41,10 +41,11 @@ type AccountState struct {
 }
 
 type AccountCoinState struct {
-	AvailableCoins   map[string][]string //avaliable to use
-	EncryptedCoins   map[string][]string //encrypted, dont know whether been used
-	AvlCoinsKeyimage map[string]string
-	CoinsValue       map[string]uint64
+	AvailableCoins    map[string][]string //avaliable to use
+	EncryptedCoins    map[string][]string //encrypted, dont know whether been used
+	AvlCoinsKeyimage  map[string]string
+	CoinsValue        map[string]uint64
+	LastUpdatedHeight map[string]uint64
 }
 
 var accountListLck sync.RWMutex
@@ -59,6 +60,7 @@ func (as *AccountState) init() {
 	as.coinState.EncryptedCoins = make(map[string][]string)
 	as.coinState.AvlCoinsKeyimage = make(map[string]string)
 	as.coinState.CoinsValue = make(map[string]uint64)
+	as.coinState.LastUpdatedHeight = make(map[string]uint64)
 	as.CTerminate = make(chan struct{})
 }
 
@@ -166,11 +168,24 @@ func scanForNewCoins() {
 					go func(tID string) {
 						defer wg2.Done()
 						tokenIDHash, _ := common.Hash{}.NewHashFromStr(tID)
-						coinList, coinIndices, err := GetCoinsByPaymentAddress(a.Account, tokenIDHash)
+
+						a.lock.Lock()
+						lastSyncedHeight, ok := a.coinState.LastUpdatedHeight[tID]
+						if !ok {
+							a.coinState.LastUpdatedHeight[tID] = a.Account.BeaconHeight
+							lastSyncedHeight = a.Account.BeaconHeight
+						}
+						a.lock.Unlock()
+
+						coinList, coinIndices, newSyncedHeight, err := GetCoinsByPaymentAddress(a.Account, lastSyncedHeight, tokenIDHash)
 						if err != nil {
 							fmt.Println(err)
 							return
 						}
+
+						a.lock.Lock()
+						a.coinState.LastUpdatedHeight[tID] = newSyncedHeight
+						a.lock.Unlock()
 						if len(coinList) > 0 {
 							coins, err := checkCoinExistAndSave(a.Account.PAstr, tID, coinList, coinIndices)
 							if err != nil {
