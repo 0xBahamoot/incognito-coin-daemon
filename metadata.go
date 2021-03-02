@@ -8,6 +8,7 @@ import (
 	"github.com/incognitochain/incognito-chain/common/base58"
 	"github.com/incognitochain/incognito-chain/incognitokey"
 	"github.com/incognitochain/incognito-chain/metadata"
+	"github.com/incognitochain/incognito-chain/rpcserver/rpcservice"
 	"github.com/incognitochain/incognito-chain/wallet"
 )
 
@@ -136,7 +137,6 @@ func NewStopAutoStakingMetadata(account *Account, metadataParam interface{}) (*m
 
 //used for both prv & pToken Contribution
 func NewPDEContribution(account *Account, metadataParam interface{}) (*metadata.PDEContribution, error) {
-	var result *metadata.PDEContribution
 	arrayParams := common.InterfaceSlice(metadataParam)
 	// get meta data from params
 	data, ok := arrayParams[3].(map[string]interface{})
@@ -160,19 +160,18 @@ func NewPDEContribution(account *Account, metadataParam interface{}) (*metadata.
 		return nil, errors.New("metadata is invalid")
 	}
 
-	result, _ = metadata.NewPDEContribution(
+	result, err := metadata.NewPDEContribution(
 		pdeContributionPairID,
 		contributorAddressStr,
 		contributedAmount,
 		tokenIDStr,
 		metadata.PDEPRVRequiredContributionRequestMeta,
 	)
-	return result, nil
+	return result, err
 }
 
 func NewPDECrossPoolTradeRequest(account *Account, metadataParam interface{}) (*metadata.PDECrossPoolTradeRequest, error) {
 	arrayParams := common.InterfaceSlice(metadataParam)
-	var result *metadata.PDECrossPoolTradeRequest
 	// get meta data from params
 	data, ok := arrayParams[3].(map[string]interface{})
 	if !ok {
@@ -211,7 +210,7 @@ func NewPDECrossPoolTradeRequest(account *Account, metadataParam interface{}) (*
 		return nil, err
 	}
 
-	result, _ = metadata.NewPDECrossPoolTradeRequest(
+	result, err := metadata.NewPDECrossPoolTradeRequest(
 		tokenIDToBuyStr,
 		tokenIDToSellStr,
 		sellAmount,
@@ -223,11 +222,10 @@ func NewPDECrossPoolTradeRequest(account *Account, metadataParam interface{}) (*
 		traderSubOTAtxRandomStr,
 		metadata.PDECrossPoolTradeRequestMeta,
 	)
-	return result, nil
+	return result, err
 }
 
 func NewPDETradeRequest(account *Account, metadataParam interface{}) (*metadata.PDETradeRequest, error) {
-	var result *metadata.PDETradeRequest
 	arrayParams := common.InterfaceSlice(metadataParam)
 	tokenParamsRaw := arrayParams[3].(map[string]interface{})
 
@@ -266,7 +264,7 @@ func NewPDETradeRequest(account *Account, metadataParam interface{}) (*metadata.
 		return nil, err
 	}
 
-	result, _ = metadata.NewPDETradeRequest(
+	result, err := metadata.NewPDETradeRequest(
 		tokenIDToBuyStr,
 		tokenIDToSellStr,
 		sellAmount,
@@ -277,5 +275,35 @@ func NewPDETradeRequest(account *Account, metadataParam interface{}) (*metadata.
 		metadata.PDETradeRequestMeta,
 	)
 
-	return result, nil
+	return result, err
+}
+
+func NewWithdrawRewardRequest(account *Account, metadataParam interface{}) (*metadata.WithDrawRewardRequest, error) {
+
+	arrayParams := common.InterfaceSlice(metadataParam)
+
+	// get metadata from params
+	metaParam, ok := arrayParams[4].(map[string]interface{})
+	if !ok {
+		return nil, rpcservice.NewRPCError(rpcservice.RPCInvalidParamsError, errors.New("metadata is invalid"))
+	}
+	tokenIDStr, ok := metaParam["TokenID"].(string)
+	if !ok {
+		return nil, rpcservice.NewRPCError(rpcservice.RPCInvalidParamsError, errors.New("token ID string is invalid"))
+	}
+	paymentAddStr, ok := metaParam["PaymentAddress"].(string)
+	if !ok {
+		return nil, rpcservice.NewRPCError(rpcservice.RPCInvalidParamsError, errors.New("payment address string is invalid"))
+	}
+	version, ok := metaParam["Version"].(float64)
+	if !ok {
+		version = 0
+	}
+	result, err := metadata.NewWithDrawRewardRequest(
+		tokenIDStr,
+		paymentAddStr,
+		version,
+		metadata.WithDrawRewardRequestMeta,
+	)
+	return result, err
 }

@@ -12,7 +12,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/incognitochain/incognito-chain/blockchain"
 	"github.com/incognitochain/incognito-chain/common"
-	"github.com/incognitochain/incognito-chain/common/base58"
 	"github.com/incognitochain/incognito-chain/dataaccessobject/statedb"
 	"github.com/incognitochain/incognito-chain/incognitokey"
 	"github.com/incognitochain/incognito-chain/metadata"
@@ -70,6 +69,8 @@ func CreateTx(req *API_create_tx_req, wsConn *websocket.Conn) {
 		txType = TXCONTRIBUTION
 	case "contribution_token":
 		txType = TXCONTRIBUTION_TOKEN
+	case "withdrawReward":
+		txType = TXWITHDRAW_REWARD
 	default:
 		wsConn.Close()
 		log.Println(errors.New("unsupported tx type"))
@@ -205,6 +206,12 @@ func (inst *txCreationInstance) Start() {
 			panic(err)
 		}
 		_ = metadata
+	case TXWITHDRAW_REWARD:
+		metadata, err := NewWithdrawRewardRequest(inst.AccountState.Account, inst.TxParamsRaw)
+		if err != nil {
+			panic(err)
+		}
+		_ = metadata
 	}
 	request := LedgerRequest{
 		Cmd: "result",
@@ -227,15 +234,15 @@ func (inst *txCreationInstance) Start() {
 		// 	fmt.Println("debugNode.InjectTx success")
 		// }(tx)
 
-		go func(tx1 metadata.Transaction) {
-			txBytes, _ := json.Marshal(tx)
-			txString := base58.Base58Check{}.Encode(txBytes, common.Base58Version)
-			result, err := rpcnode.API_SendRawTransaction(txString)
-			if err != nil {
-				panic(err)
-			}
-			fmt.Println("txresult", result)
-		}(tx)
+		// go func(tx1 metadata.Transaction) {
+		// 	txBytes, _ := json.Marshal(tx)
+		// 	txString := base58.Base58Check{}.Encode(txBytes, common.Base58Version)
+		// 	result, err := rpcnode.API_SendRawTransaction(txString)
+		// 	if err != nil {
+		// 		panic(err)
+		// 	}
+		// 	fmt.Println("txresult", result)
+		// }(tx)
 	}
 	requestBytes, _ := json.Marshal(request)
 	err := inst.sendMsgToClient(requestBytes)

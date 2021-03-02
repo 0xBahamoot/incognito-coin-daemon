@@ -24,7 +24,6 @@ func generateMlsagRingWithIndexes(inputCoins []privacy.PlainCoin, outputCoins []
 			utils.Logger.Log.Errorf("Getting length of commitment error, either database length ota is empty or has error, error = %v", err)
 			return nil, nil, nil, err
 		}
-
 	}
 
 	outputCoinsAsGeneric := make([]privacy.Coin, len(outputCoins))
@@ -119,10 +118,29 @@ func getMLSAGSigFromTxSigAndKeyImages(txSig []byte, keyImages []*privacy.Point) 
 //CA
 
 func generateMlsagRingWithIndexesCA(inputCoins []privacy.PlainCoin, outputCoins []*privacy.CoinV2, params *tx_generic.TxPrivacyInitParams, pi int, shardID byte, ringSize int) (*mlsag.Ring, [][]*big.Int, []*privacy.Point, error) {
-	lenOTA, err := statedb.GetOTACoinLength(params.StateDB, common.ConfidentialAssetID, shardID)
+	var lenOTA *big.Int
+	var err error
+	if NODEMODE != MODERPC {
+		lenOTA, err = statedb.GetOTACoinLength(params.StateDB, *params.TokenID, shardID)
+		if err != nil || lenOTA == nil {
+			utils.Logger.Log.Errorf("Getting length of commitment error, either database length ota is empty or has error, error = %v", err)
+			return nil, nil, nil, err
+		}
+	}
+
 	if err != nil || lenOTA == nil {
 		utils.Logger.Log.Errorf("Getting length of commitment error, either database length ota is empty or has error, error = %v", err)
 		return nil, nil, nil, err
+	}
+	var cmtIndices []uint64
+	var commitments []*privacy.Point
+	var publicKeys []*privacy.Point
+	var assetTags []*privacy.Point
+	if NODEMODE == MODERPC {
+		cmtIndices, commitments, publicKeys, assetTags, err = GetRandomCommitmentsAndPublicKeys(shardID, params.TokenID.String(), len(inputCoins)*(privacy.RingSize-1))
+		if err != nil {
+			return nil, nil, nil, err
+		}
 	}
 	outputCoinsAsGeneric := make([]privacy.Coin, len(outputCoins))
 	for i := 0; i < len(outputCoins); i++ {
@@ -146,6 +164,7 @@ func generateMlsagRingWithIndexesCA(inputCoins []privacy.PlainCoin, outputCoins 
 	indexes := make([][]*big.Int, ringSize)
 	ring := make([][]*privacy.Point, ringSize)
 	var lastTwoColumnsCommitmentToZero []*privacy.Point
+	currentIndex := 0
 	for i := 0; i < ringSize; i += 1 {
 		sumInputs := new(privacy.Point).Identity()
 		sumInputs.Sub(sumInputs, sumOutputsWithFee)
@@ -157,9 +176,16 @@ func generateMlsagRingWithIndexesCA(inputCoins []privacy.PlainCoin, outputCoins 
 			for j := 0; j < len(inputCoins); j += 1 {
 				row[j] = inputCoins[j].GetPublicKey()
 				publicKeyBytes := inputCoins[j].GetPublicKey().ToBytesS()
-				if rowIndexes[j], err = statedb.GetOTACoinIndex(params.StateDB, common.ConfidentialAssetID, publicKeyBytes); err != nil {
-					utils.Logger.Log.Errorf("Getting commitment index error %v ", err)
-					return nil, nil, nil, err
+				if NODEMODE == MODERPC {
+					if rowIndexes[j], err = getCoinIndexViaCoinDB(hex.EncodeToString(inputCoins[j].GetPublicKey().ToBytesS())); err != nil {
+						fmt.Errorf("Getting commitment index error %v ", err)
+						return nil, nil, nil, err
+					}
+				} else {
+					if rowIndexes[j], err = statedb.GetOTACoinIndex(params.StateDB, common.ConfidentialAssetID, publicKeyBytes); err != nil {
+						utils.Logger.Log.Errorf("Getting commitment index error %v ", err)
+						return nil, nil, nil, err
+					}
 				}
 				sumInputs.Add(sumInputs, inputCoins[j].GetCommitment())
 				inputCoin_specific, ok := inputCoins[j].(*privacy.CoinV2)
@@ -174,26 +200,36 @@ func generateMlsagRingWithIndexesCA(inputCoins []privacy.PlainCoin, outputCoins 
 				sumInputAssetTags.Add(sumInputAssetTags, inputCoin_specific.GetAssetTag())
 			}
 		} else {
-			for j := 0; j < len(inputCoins); j += 1 {
-				rowIndexes[j], _ = common.RandBigIntMaxRange(lenOTA)
-				coinBytes, err := statedb.GetOTACoinByIndex(params.StateDB, common.ConfidentialAssetID, rowIndexes[j].Uint64(), shardID)
-				if err != nil {
-					utils.Logger.Log.Errorf("Get coinv2 by index error %v ", err)
-					return nil, nil, nil, err
+			if NODEMODE == MODERPC {
+				for j := 0; j < len(inputCoins); j++ {
+					rowIndexes[j] = new(big.Int).SetUint64(cmtIndices[currentIndex])
+					row[j] = publicKeys[currentIndex]
+					sumInputs.Add(sumInputs, commitments[currentIndex])
+					sumInputAssetTags.Add(sumInputAssetTags, assetTags[currentIndex])
+					currentIndex++
 				}
-				coinDB := new(privacy.CoinV2)
-				if err := coinDB.SetBytes(coinBytes); err != nil {
-					utils.Logger.Log.Errorf("Cannot parse coinv2 byte error %v ", err)
-					return nil, nil, nil, err
+			} else {
+				for j := 0; j < len(inputCoins); j += 1 {
+					rowIndexes[j], _ = common.RandBigIntMaxRange(lenOTA)
+					coinBytes, err := statedb.GetOTACoinByIndex(params.StateDB, common.ConfidentialAssetID, rowIndexes[j].Uint64(), shardID)
+					if err != nil {
+						utils.Logger.Log.Errorf("Get coinv2 by index error %v ", err)
+						return nil, nil, nil, err
+					}
+					coinDB := new(privacy.CoinV2)
+					if err := coinDB.SetBytes(coinBytes); err != nil {
+						utils.Logger.Log.Errorf("Cannot parse coinv2 byte error %v ", err)
+						return nil, nil, nil, err
+					}
+					row[j] = coinDB.GetPublicKey()
+					sumInputs.Add(sumInputs, coinDB.GetCommitment())
+					if coinDB.GetAssetTag() == nil {
+						utils.Logger.Log.Errorf("CA error: missing asset tag for signing in DB coin - %v", coinBytes)
+						err := utils.NewTransactionErr(utils.SignTxError, errors.New("Cannot sign CA token : a CA coin in DB does not have asset tag"))
+						return nil, nil, nil, err
+					}
+					sumInputAssetTags.Add(sumInputAssetTags, coinDB.GetAssetTag())
 				}
-				row[j] = coinDB.GetPublicKey()
-				sumInputs.Add(sumInputs, coinDB.GetCommitment())
-				if coinDB.GetAssetTag() == nil {
-					utils.Logger.Log.Errorf("CA error: missing asset tag for signing in DB coin - %v", coinBytes)
-					err := utils.NewTransactionErr(utils.SignTxError, errors.New("Cannot sign CA token : a CA coin in DB does not have asset tag"))
-					return nil, nil, nil, err
-				}
-				sumInputAssetTags.Add(sumInputAssetTags, coinDB.GetAssetTag())
 			}
 		}
 		sumInputAssetTags.ScalarMult(sumInputAssetTags, outCount)
