@@ -36,6 +36,8 @@ func createMlsagSigLedger(instance *txCreationInstance, ring *mlsag.Ring, pi int
 		return errors.New("Error : asset tag sum or commitment sum mismatch")
 	}
 
+	_, r := createRandomChallenges(len(inputCoins)+1, len(ring.GetKeys()), pi)
+
 	//coinsH
 	coinsH, err := ExtractCoinH(inputCoins, instance.AccountState.Account.OTAKey)
 	if err != nil {
@@ -45,8 +47,6 @@ func createMlsagSigLedger(instance *txCreationInstance, ring *mlsag.Ring, pi int
 	sumRandPubkey := mlsag.ParseKeyImages(sumRandPK)
 
 	coinsH = append(coinsH, sumRandPK[0].ToBytesS())
-
-	_, r := createRandomChallenges(len(inputCoins)+1, len(ring.GetKeys()), pi)
 
 	coinKMs := []*operation.Point{}
 	for _, coin := range inputCoins {

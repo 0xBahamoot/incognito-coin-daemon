@@ -283,7 +283,7 @@ func NewWithdrawRewardRequest(account *Account, metadataParam interface{}) (*met
 	arrayParams := common.InterfaceSlice(metadataParam)
 
 	// get metadata from params
-	metaParam, ok := arrayParams[4].(map[string]interface{})
+	metaParam, ok := arrayParams[3].(map[string]interface{})
 	if !ok {
 		return nil, rpcservice.NewRPCError(rpcservice.RPCInvalidParamsError, errors.New("metadata is invalid"))
 	}

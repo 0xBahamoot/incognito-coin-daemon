@@ -305,17 +305,6 @@ func calculateNextC(digest [common.HashSize]byte, r []*operation.Scalar, c *oper
 	var b []byte
 	b = append(b, digest[:]...)
 
-	// Below is the mathematics within the Monero paper:
-	// If you are reviewing my code, please refer to paper
-	// rG: r*G
-	// cK: c*R
-	// rG_cK: rG + cK
-	//
-	// HK: H_p(K_i)
-	// rHK: r_i*H_p(K_i)
-	// cKI: c*R~ (KI as keyImage)
-	// rHK_cKI: rHK + cKI
-
 	// Process columns before the last
 	for i := 0; i < len(K)-1; i += 1 {
 		rG := new(operation.Point).ScalarMultBase(r[i])
@@ -350,7 +339,6 @@ func calculateNextC(digest [common.HashSize]byte, r []*operation.Scalar, c *oper
 }
 
 func calculateC(message [common.HashSize]byte, ring *mlsag.Ring, pi int, coinsKeyImage []*operation.Point, alpha []*operation.Scalar, r [][]*operation.Scalar) ([]*operation.Scalar, error) {
-	// m := len(this.privateKeys)+1 //len(coinsKeyImage)+1 ?
 	R := ring.GetKeys()
 	n := len(R)
 
@@ -380,12 +368,5 @@ func calculateC(message [common.HashSize]byte, ring *mlsag.Ring, pi int, coinsKe
 		i = next
 		next = (next + 1) % n
 	}
-
-	// TO BE CALCULATE ON LEDGER
-	// for i := 0; i < m; i += 1 {
-	// 	ck := new(operation.Scalar).Mul(c[this.pi], this.privateKeys[i])
-	// 	r[this.pi][i] = new(operation.Scalar).Sub(alpha[i], ck)
-	// }
-
 	return c, nil
 }
