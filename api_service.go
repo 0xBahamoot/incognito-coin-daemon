@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/websocket"
+	"github.com/incognitochain/incognito-chain/common"
 	"github.com/incognitochain/incognito-chain/privacy/key"
 )
 
@@ -24,7 +25,7 @@ func startAPIService(port string) {
 	http.HandleFunc("/submitkeyimages", submitKeyImages)
 	http.HandleFunc("/daemonstate", getStateHandler)
 	http.HandleFunc("/createtx", createTxHandler)
-	http.HandleFunc("/cancelalltxs", cancelAllTxsHandler)
+	http.HandleFunc("/gettxstatus", getTxStatusHandler)
 	http.HandleFunc("/getaccountlist", getAccountListHandler)
 	http.HandleFunc("/removeaccount", removeAccountHandler)
 	http.HandleFunc("/gettokenlist", getTokenListHandler)
@@ -37,6 +38,7 @@ func startAPIService(port string) {
 
 func getStateHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+	return
 }
 
 func importAccountHandler(w http.ResponseWriter, r *http.Request) {
@@ -129,8 +131,33 @@ func getCoinsToDecryptHandler(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
-func cancelAllTxsHandler(w http.ResponseWriter, r *http.Request) {
-
+func getTxStatusHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	txHashStr := r.URL.Query().Get("tx")
+	_, err := common.Hash{}.NewHashFromStr(txHashStr)
+	if err != nil {
+		http.Error(w, "Unexpected error", http.StatusInternalServerError)
+		return
+	}
+	result, err := rpcnode.API_GetTransactionHash(txHashStr)
+	if err != nil {
+		http.Error(w, "Unexpected error", http.StatusInternalServerError)
+		return
+	}
+	resultBytes, err := json.Marshal(result)
+	if err != nil {
+		http.Error(w, "Unexpected error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(200)
+	_, err = w.Write(resultBytes)
+	if err != nil {
+		panic(err)
+	}
 	return
 }
 

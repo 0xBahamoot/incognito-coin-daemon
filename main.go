@@ -52,6 +52,7 @@ func main() {
 		localnode = node
 		rpcnode = node.GetRPC()
 		initCoinService()
+		fmt.Println("started daemon in light mode...")
 	case MODERPC:
 		node := devframework.NewRPCClient(*rpcFlag)
 		rpcnode = node
@@ -64,6 +65,7 @@ func main() {
 		debugNode = node
 		localnode = node
 		rpcnode = node.GetRPC()
+		fmt.Println("started daemon in sim mode...")
 		// initCoinService()
 		node.GenerateBlock().NextRound()
 
