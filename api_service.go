@@ -73,6 +73,14 @@ func removeAccountHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	accName := r.URL.Query().Get("account")
+	accountListLck.RLock()
+	defer accountListLck.RUnlock()
+	if _, ok := accountList[accName]; !ok {
+		http.Error(w, "account name isn't exist", http.StatusBadRequest)
+		return
+	}
+	return
 }
 
 func getCoinsToDecryptHandler(w http.ResponseWriter, r *http.Request) {
@@ -243,6 +251,7 @@ func submitKeyImages(w http.ResponseWriter, r *http.Request) {
 		panic(err)
 	}
 	w.WriteHeader(200)
+	return
 }
 
 func getBalanceHandler(w http.ResponseWriter, r *http.Request) {
