@@ -1126,8 +1126,8 @@ func createUniqueOTACoinCA(paymentInfo *privacy.PaymentInfo, tokenID *common.Has
 		}
 		// If previously created coin is burning address
 		if sharedSecret == nil {
-			// assetTag := privacy.HashToPoint(tokenID[:])
-			// c.SetAssetTag(assetTag)
+			assetTag := privacy.HashToPoint(tokenID[:])
+			c.SetAssetTag(assetTag)
 			return c, nil, nil // No need to check db
 		}
 		// Onetimeaddress should be unique
